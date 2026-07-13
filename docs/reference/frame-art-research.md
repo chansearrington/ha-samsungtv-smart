@@ -149,9 +149,21 @@ Grounded in current (2026) HA core. Our integration already forwards platforms i
 - Ark reachable via `ssh ark` (The-Ark). HA = docker container `homeassistant`
   (lscr.io/linuxserver/homeassistant), config at host `/mnt/user/appdata/homeassistant`.
 - Integration **loads cleanly, zero errors** — only HA's standard "custom integration" notice.
-  Entities incl. `media_player.living_room_tv` (the Frame) and `media_player.kitchen_smartthings_hub`;
-  automation `frame_tv_mount_position_sync` (motorized MantelMount). Recurring cosmetic warning
-  "SmartThings report TV is off but status detected is on" — known noise, not a failure.
+  Recurring cosmetic warning "SmartThings report TV is off but status detected is on" — known
+  noise, not a failure. Automation `frame_tv_mount_position_sync` (motorized MantelMount).
+
+- **TWO Frame TVs are live — both first-class verify targets.** There are **two** 65" Samsung
+  Frames (model **QN65LS03BAFXZA**), each its own `samsungtv_smart` config entry, both upgraded to
+  base 8.3.3 automatically by the single shared integration (so P0 covers both at once). Verify
+  every TV-facing change against **both**:
+
+  | Frame | Config entry | Host | `media_player` entity | Art entities (examples) |
+  |---|---|---|---|---|
+  | **Living Room** | "Living Room TV (SmartThings)" | `192.168.1.64` | `media_player.living_room_tv` | `switch.living_room_tv_art_mode`, `sensor.living_room_tv_frame_art`, `select.living_room_living_room_tv_matte_type`, `number.living_room_living_room_tv_art_mode_brightness`, `number.living_room_living_room_tv_art_mode_color_temperature` |
+  | **Kitchen** | "Kitchen TV (SmartThings)" | `192.168.1.140` | `media_player.kitchen_smartthings_hub` (naming quirk) | `switch.kitchen_tv_art_mode`, `sensor.kitchen_tv_frame_art`, `select.kitchen_kitchen_tv_matte_type`, `number.kitchen_kitchen_tv_art_mode_brightness`, `number.kitchen_kitchen_tv_art_mode_color_temperature` |
+
+  Note the kitchen `media_player` entity id is `media_player.kitchen_smartthings_hub`, **not**
+  `media_player.kitchen_tv` — a naming quirk to watch for in every verify step.
 - Deployed copy (B) differs from A: config_flow 722, sensor 573, media_player 466, switch 399,
   __init__ 255 changed lines; version 0.14.5. `.bak` files present → history of hand-editing on
   the server. **Root cause of "I thought I used it… maybe I don't":** deployed ≠ GitHub.

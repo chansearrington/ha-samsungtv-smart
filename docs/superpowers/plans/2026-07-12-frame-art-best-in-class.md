@@ -19,7 +19,10 @@ Every task's requirements implicitly include this section. Exact values copied f
 - **Change confinement:** all our code edits land in `custom_components/samsungtv_smart/api/art.py` + a small `api/_dedup.py` helper + `media_source.py` + a blueprint. Avoid editing `media_player.py`, `select.py`, `number.py`, etc. — every edit outside `art.py`/helpers is future merge-conflict debt against `fab21`.
 - **Deploy path:** the ONLY deploy is git → Ark rsync of the component + `docker restart homeassistant`. No hand-editing on the server. The live install is only ever a checkout of a branch.
 - **Serialized deploy lane:** exactly **one build is live on the TV at a time**. P2/P3/P4/P5 are authored in parallel on separate branches but integration-verified one at a time. Risky branches (P4 reconnect) get an isolated deploy slot.
-- **Real test TV:** `media_player.living_room_tv` on Ark, reachable via `ssh ark`; HA is docker container `homeassistant` (`lscr.io/linuxserver/homeassistant`), config at host `/mnt/user/appdata/homeassistant`, log at `/mnt/user/appdata/homeassistant/home-assistant.log`.
+- **Real test TVs (BOTH Frames):** there are **two** 65" Samsung Frames (model QN65LS03BAFXZA), each its own `samsungtv_smart` config entry, both on the single shared integration — **every TV-verify step runs against both**:
+  - **Living Room** — config "Living Room TV (SmartThings)", host `192.168.1.64`, `media_player.living_room_tv`; art entities e.g. `switch.living_room_tv_art_mode`, `select.living_room_living_room_tv_matte_type`, `number.living_room_living_room_tv_art_mode_brightness`.
+  - **Kitchen** — config "Kitchen TV (SmartThings)", host `192.168.1.140`, `media_player.kitchen_smartthings_hub` (naming quirk — **not** `media_player.kitchen_tv`); art entities e.g. `switch.kitchen_tv_art_mode`, `select.kitchen_kitchen_tv_matte_type`, `number.kitchen_kitchen_tv_art_mode_brightness`.
+  Reached via `ssh ark`; HA is docker container `homeassistant` (`lscr.io/linuxserver/homeassistant`), config at host `/mnt/user/appdata/homeassistant`, log at `/mnt/user/appdata/homeassistant/home-assistant.log`.
 - **Adopted base tag:** pin **`8.3.3`** (latest stable release; `8.4.0b*` are betas — do not pin a beta). Confirm it is still the latest stable at execution (Task 0.1) and record it in `docs/reference/adopted-base.md`.
 - **Allowed noise:** HA's standard "custom integration" notice and the cosmetic "SmartThings report TV is off but status detected is on" warning are allowed; anything else in the log is a failure.
 
@@ -443,8 +446,10 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Create: `docs/reference/p1-baseline-note.md` (section: art dropdown)
 
 **Interfaces:**
-- Consumes: live 8.3.3 install; `media_player.living_room_tv`.
-- Produces: recorded evidence that the art-select entity lists ≥ 10 artworks and selection lands within 10 s. Satisfies criterion 5.
+- Consumes: live 8.3.3 install; **both Frames** (`media_player.living_room_tv` + `media_player.kitchen_smartthings_hub`).
+- Produces: recorded evidence that the art-select entity lists ≥ 10 artworks and selection lands within 10 s **on each Frame**. Satisfies criterion 5.
+
+> **Both Frames:** run every step below for the living-room Frame AND the kitchen Frame; record each TV's entity ids and results separately (criterion 5 passes only when both do).
 
 - [ ] **Step 1: Find the art-selection entity for the Frame**
 
@@ -480,8 +485,10 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Modify: `docs/reference/p1-baseline-note.md` (section: platforms)
 
 **Interfaces:**
-- Consumes: live install.
-- Produces: recorded evidence that the 11 selects, 5 numbers, Reboot-TV button, thumbnail HTTP view, and token-notify all instantiate without error. Satisfies criterion 6.
+- Consumes: live install; **both Frames** (`media_player.living_room_tv` + `media_player.kitchen_smartthings_hub`).
+- Produces: recorded evidence that the 11 selects, 5 numbers, Reboot-TV button, thumbnail HTTP view, and token-notify all instantiate without error **on each Frame**. Satisfies criterion 6.
+
+> **Both Frames:** confirm the platform set on the living-room Frame AND the kitchen Frame (note the kitchen entity ids use the `kitchen_kitchen_tv_*` / `kitchen_tv_*` prefixes); criterion 6 passes only when both do.
 
 - [ ] **Step 1: Count the TV's select and number entities**
 
@@ -523,6 +530,8 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: live install; the four bug descriptions (spec §2.7–2.10 / digest §5).
 - Produces: a per-bug "reproduces live: yes/no" record. Bugs that do not reproduce live still ship with automated regression tests as proof (risk table). Feeds P2.
+
+> **Both Frames:** check bug reproduction on the living-room Frame AND the kitchen Frame — a bug (esp. bug 1 art-mode misdetection, bug 2 matte list) may reproduce on one Frame and not the other; record each per-TV.
 
 - [ ] **Step 1: Bug 1 (art-mode misdetection) — put the TV in Art Mode and check REST vs report**
 
@@ -920,7 +929,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: all four fixes on `p2-firmware-fixes`; `scripts/deploy_to_ark.sh`; backup branch.
-- Produces: TV-verified proof of criteria 7, 8, 9, 10, plus 15 (tests green, no pyc) and 16 (no regression of 4–6).
+- Produces: TV-verified proof of criteria 7, 8, 9, 10, plus 15 (tests green, no pyc) and 16 (no regression of 4–6). **TV-verify runs against both Frames: `media_player.living_room_tv` + `media_player.kitchen_smartthings_hub`.**
 
 - [ ] **Step 1: Full test suite green + no pyc (criterion 15)**
 
@@ -1356,7 +1365,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `p3-dedup-upload` branch; deploy script; a small known test image set on the TV.
-- Produces: TV-verified proof of criteria 11, 12, 13, 15, 16.
+- Produces: TV-verified proof of criteria 11, 12, 13, 15, 16. **TV-verify runs against both Frames: `media_player.living_room_tv` + `media_player.kitchen_smartthings_hub`.**
 
 - [ ] **Step 1: Full suite green + no pyc**
 
@@ -1505,7 +1514,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `p4-reconnect` branch; deploy script; the Reboot-TV button as manual recovery fallback.
-- Produces: TV-verified proof of criterion 14 (+ 15, 16).
+- Produces: TV-verified proof of criterion 14 (+ 15, 16). **TV-verify runs against both Frames: `media_player.living_room_tv` + `media_player.kitchen_smartthings_hub`.**
 
 - [ ] **Step 1: Full suite green + no pyc**
 
@@ -1732,7 +1741,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `p5-gallery` branch; deploy script; a HA dashboard with the card.
-- Produces: TV-verified proof of criterion 17 (+ 15, 16).
+- Produces: TV-verified proof of criterion 17 (+ 15, 16). **TV-verify runs against both Frames: `media_player.living_room_tv` + `media_player.kitchen_smartthings_hub`.**
 
 - [ ] **Step 1: Full suite green + no pyc**
 
@@ -1878,7 +1887,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `p6-blueprint` branch; deploy script; a real presence sensor.
-- Produces: TV-verified proof of criterion 18.
+- Produces: TV-verified proof of criterion 18. **TV-verify runs against both Frames as separate per-TV automation instances: `media_player.living_room_tv` + `media_player.kitchen_smartthings_hub`.**
 
 - [ ] **Step 1: Suite green + merge + deploy**
 

@@ -6,9 +6,13 @@ not re-litigate anything the digest marks as decided — it turns those decision
 verifiable plan._
 
 **Reading guide for Chanse (non-technical):** every section opens in plain English. Anything that
-needs code-level detail is fenced under a **`[Technical detail]`** heading you can skip. When you
-see a `media_player.living_room_tv` reference, that is your actual Samsung Frame TV in the living
-room, running on the Ark server.
+needs code-level detail is fenced under a **`[Technical detail]`** heading you can skip. You have
+**two** Samsung Frame TVs, and **both are first-class verification targets** — every "verified on
+the real Frame TV" claim must hold on **each** of them: the living-room Frame
+(`media_player.living_room_tv`, host `192.168.1.64`) AND the kitchen Frame
+(`media_player.kitchen_smartthings_hub` — note the naming quirk — host `192.168.1.140`). Both are
+65" model QN65LS03BAFXZA, each its own config entry, both running on the Ark server. When you see a
+`media_player.living_room_tv` reference below, read it as shorthand for "each Frame".
 
 ---
 
@@ -40,8 +44,10 @@ assets. Confirmed decisions:
 - Our **genuine value-add** (nobody has these): firmware-compatibility bug fixes, image dedup +
   content_id sidecar map, upload type detection, batch upload throttle, and WebSocket
   auto-reconnect/keepalive (digest §5).
-- Verify everything against the **real Frame TV** `media_player.living_room_tv` on Ark
-  (`ssh ark`; HA docker container `homeassistant`; config `/mnt/user/appdata/homeassistant`).
+- Verify everything against the **real Frame TVs** on Ark — **both Frames** (living room
+  `media_player.living_room_tv` @ `192.168.1.64` AND kitchen `media_player.kitchen_smartthings_hub`
+  @ `192.168.1.140`; both model QN65LS03BAFXZA, each its own config entry) — via `ssh ark`; HA
+  docker container `homeassistant`; config `/mnt/user/appdata/homeassistant`.
 
 This is a **Claude Code agent-team-driven** effort: a coordinator plus specialist agents run each
 phase in a loop until acceptance criteria pass, visible in Herdr/Moshi (§6).
@@ -50,9 +56,10 @@ phase in a loop until acceptance criteria pass, visible in Herdr/Moshi (§6).
 
 ## 2. Success criteria
 
-Numbered, concrete, and verifiable. Unless noted, "verified" means observed on the real Frame TV
-(`media_player.living_room_tv`) via HA service calls and entity-state inspection. Each phase (§5)
-gates on the subset that applies to it.
+Numbered, concrete, and verifiable. Unless noted, "verified" means observed on **each Frame** (the
+living-room `media_player.living_room_tv` **AND** the kitchen `media_player.kitchen_smartthings_hub`)
+via HA service calls and entity-state inspection — a criterion is only met when it holds on **both**
+Frames. Each phase (§5) gates on the subset that applies to it.
 
 **Foundation**
 1. **Base adopted cleanly.** `custom_components/samsungtv_smart/` on our fork is byte-equivalent
@@ -64,8 +71,9 @@ gates on the subset that applies to it.
    is off but status detected is on" warning is allowed — digest §8).
 3. **Backup-before-deploy proven.** Before the first redeploy, the live install (B) is captured to
    a dedicated git branch, and restoring from that branch is shown to work.
-4. **Smoke test passes.** After deploy, `media_player.living_room_tv` is present and controllable
-   (power/basic media_player commands succeed), matching pre-deploy behavior.
+4. **Smoke test passes.** After deploy, **each Frame** (living room `media_player.living_room_tv`
+   AND kitchen `media_player.kitchen_smartthings_hub`) is present and controllable (power/basic
+   media_player commands succeed), matching pre-deploy behavior.
 
 **Baseline (C's shipped features, verified live)**
 5. **Art dropdown populated.** The art-selection entity lists **≥ 10 artworks** from the TV, and
@@ -102,8 +110,9 @@ gates on the subset that applies to it.
 **UX & contribution (now core scope — user promoted from stretch)**
 17. **Gallery browsing works.** The art library is browsable as a thumbnail grid on the HA
     dashboard (via `media_source` + `camera-gallery-card`), and picking an image selects it on
-    `media_player.living_room_tv` within 10 s. Grid images are served by the thumbnail HTTP view
-    (no base64).
+    **each Frame** (living room `media_player.living_room_tv` AND kitchen
+    `media_player.kitchen_smartthings_hub`) within 10 s. Grid images are served by the thumbnail
+    HTTP view (no base64).
 18. **Auto-art blueprint works.** An installable HA blueprint imports cleanly, rotates art on the
     real Frame on schedule, and only re-asserts art mode when a presence/motion sensor reports the
     room occupied.
@@ -288,9 +297,13 @@ work, so parallel-capable with P2–P4 (still shares the serialized deploy lane 
   self-recovery (only re-assert art mode when a room presence/motion sensor says occupied),
   inspired by `sharkpunch5/frametv`. Nobody has published a Frame-art blueprint — this is novel.
 - Use the fixed art-mode detection (P2 bug 1) so recovery is reliable on 2025 firmware.
+- The blueprint must be **TV-agnostic**: the target Frame (media_player + its presence sensor) is a
+  per-instance input, so it works on **both** Frames and is **selectable per-TV** — verify one
+  automation instance on the living-room Frame and a second on the kitchen Frame.
 
-**Gate:** Success criterion **18** passes (blueprint imports cleanly, rotates art on the real
-Frame on schedule, and only recovers art mode when presence is detected).
+**Gate:** Success criterion **18** passes (blueprint imports cleanly, rotates art on **each Frame**
+— living room AND kitchen, as separate per-TV automation instances — on schedule, and only recovers
+art mode when presence is detected).
 **Parallelism:** depends on P2 bug 1 landing; otherwise independent (a YAML blueprint + docs).
 
 ### P7 — Contribute-back PRs _(core; after each contributing fix is proven on the TV)_
