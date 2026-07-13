@@ -99,6 +99,18 @@ gates on the subset that applies to it.
     the connection **within 60 s** without a HA restart, with keepalive pings keeping an idle
     session alive for **≥ 10 min**; a test forces a disconnect and asserts recovery.
 
+**UX & contribution (now core scope — user promoted from stretch)**
+17. **Gallery browsing works.** The art library is browsable as a thumbnail grid on the HA
+    dashboard (via `media_source` + `camera-gallery-card`), and picking an image selects it on
+    `media_player.living_room_tv` within 10 s. Grid images are served by the thumbnail HTTP view
+    (no base64).
+18. **Auto-art blueprint works.** An installable HA blueprint imports cleanly, rotates art on the
+    real Frame on schedule, and only re-asserts art mode when a presence/motion sensor reports the
+    room occupied.
+19. **Contribute-back PRs opened.** A focused, test-carrying public PR is opened to
+    `TheFab21/ha-samsungtv-smart` for each proven improvement (firmware fixes, dedup/upload,
+    reconnect); PR links are recorded in the repo. (Merge by TheFab21 is **not** required.)
+
 **Quality gates (all phases)**
 15. **Tests green.** All new/changed unit + regression tests pass in CI/local run; no committed
     `.pyc`/`__pycache__` (digest §8 — the 17 committed pyc files are removed and gitignored).
@@ -120,8 +132,9 @@ Explicitly **out of scope** — do not build these, do not let scope creep pull 
 - **No public HACS release in this scope.** HACS custom-repo install is a later nicety. We
   *structure* the repo so it's HACS-ready (clean tree, no pyc, valid manifest) but shipping it is
   out of scope here.
-- **No new crop/preview UX, no media_source library grid, in the core scope.** These are stretch
-  (§5 P5) and only if they earn their keep.
+- **No pre-upload crop/reframe *editor* UX.** We do not build an in-HA image-cropping/preview
+  editor. (The `media_source` browse grid + `camera-gallery-card` and the auto-art blueprint ARE
+  now in core scope — P5/P6 — but a crop editor is not.)
 - **No SmartThings/OAuth rearchitecture.** We may re-apply our two doc files (`README_CORRECTIONS.md`,
   `README_OAUTH2.md`) but we don't touch that subsystem's behavior.
 
@@ -191,7 +204,9 @@ until its gate passes; the agent team loops on failure (§6). **P0 and P1 are st
 sequential and gate everything.** Once P1 passes, **P2, P3, and P4 can partly run in parallel**
 because they touch mostly separate regions of `api/art.py` — but they **share a serialized deploy
 lane** (only one build is live on the real TV at a time), so integration-verify happens one branch
-at a time. P5 is stretch, after P2–P4.
+at a time. **P5 (gallery UX), P6 (blueprint), and P7 (contribute-back) are all core scope** (user
+promoted them from stretch): P5 is parallel-capable with P2–P4, P6 depends on P2's bug-1 fix, and
+P7's PRs follow each fix once it's TV-verified.
 
 ### P0 — Safety, adopt base, deploy, smoke-verify _(sequential; gates all)_
 **Tasks:**
@@ -252,14 +267,43 @@ survives); **15, 16**.
 lane. Because a reconnect bug can wedge the live connection, its TV-verify should get an isolated
 deploy slot (don't co-deploy with another risky branch).
 
-### P5 — Stretch _(after P2–P4; optional)_
-- Best-effort contribute-back PRs to `TheFab21/ha-samsungtv-smart` (assume no merge).
-- Swap/add `TheScubaDiver/camera-gallery-card` (media_source-driven, visual editor) as a nicer
-  gallery option.
-- Presence-aware `KEY_RIGHT` native-cycle recovery **blueprint** (inspired by
-  `sharkpunch5/frametv`) — nobody has published a Frame-art blueprint.
+### P5 — Gallery / browse UX _(core; parallel-capable with P2–P4)_
+**Tasks:**
+- Expose the art library as a **`media_source`** so it's browsable as a real thumbnail grid in
+  HA (note 2026 change: `BrowseMediaSource(domain=...)` mandatory). Reuse C's `http_thumbnail.py`
+  view to serve the grid images (no base64).
+- Add **`TheScubaDiver/camera-gallery-card`** (87★, MIT, media_source-driven, visual editor) as
+  the browse-and-pick card, alongside/replacing the older `folder-gallery-card`. Provide a
+  ready-to-paste Lovelace example wired to the Frame.
 
-**Gate:** each stretch item verified independently; none block P2–P4 sign-off.
+**Gate:** Success criterion **17** passes (art library browsable as a thumbnail grid on the
+dashboard; picking an image selects it on the TV within 10 s); **15, 16** hold.
+**Parallelism:** mostly frontend + a read-only `media_source.py`; independent of the `art.py`
+work, so parallel-capable with P2–P4 (still shares the serialized deploy lane for the
+`media_source.py` piece).
+
+### P6 — Presence-aware auto-art blueprint _(core; after P2, parallel with P3–P5)_
+**Tasks:**
+- Ship an installable HA **blueprint**: presence-aware `KEY_RIGHT` native-cycle art rotation +
+  self-recovery (only re-assert art mode when a room presence/motion sensor says occupied),
+  inspired by `sharkpunch5/frametv`. Nobody has published a Frame-art blueprint — this is novel.
+- Use the fixed art-mode detection (P2 bug 1) so recovery is reliable on 2025 firmware.
+
+**Gate:** Success criterion **18** passes (blueprint imports cleanly, rotates art on the real
+Frame on schedule, and only recovers art mode when presence is detected).
+**Parallelism:** depends on P2 bug 1 landing; otherwise independent (a YAML blueprint + docs).
+
+### P7 — Contribute-back PRs _(core; after each contributing fix is proven on the TV)_
+**Tasks:**
+- Open **best-effort public PRs** to `TheFab21/ha-samsungtv-smart` for the firmware fixes (P2),
+  dedup/upload (P3), and reconnect (P4) — each as a focused, independently-reviewable PR with its
+  regression test. Assume no coordination and that they may never merge; our fork stays the
+  deployed artifact regardless.
+
+**Gate:** Success criterion **19** passes (a PR per proven improvement is opened upstream with
+tests and a clear description; links recorded in the repo).
+**Parallelism:** each PR follows its source phase (P2/P3/P4) once that fix is TV-verified; does not
+block any other phase.
 
 ---
 
@@ -382,7 +426,7 @@ Most decisions are settled (§1). Only these may need your input:
 2. **IP-control pairing on the real TV.** C adds an IP-control channel that may prompt the TV to
    accept a new pairing on first load. Are you OK physically accepting a prompt on the Frame during
    the P0 deploy if it appears? (Recommend: yes, once, during a supervised P0 deploy.)
-3. **Contribute-back timing.** Do the best-effort PRs in P5 as planned, or hold them until you've
-   lived with the fork for a while? (Recommend: P5, after the fork is proven on your TV.)
-4. **Stretch scope (P5).** Which of camera-gallery-card and the presence-aware blueprint (if any)
-   do you actually want, or leave both as "later"? (Recommend: decide after P2–P4 land.)
+3. **Contribute-back timing — DECIDED.** Planned as **P7**, one PR per improvement, opened once
+   that fix is TV-verified (user approved planning it in from the start).
+4. **Gallery card + blueprint — DECIDED.** Both promoted to **core scope** (P5 gallery UX, P6
+   blueprint) per user direction 2026-07-12.
