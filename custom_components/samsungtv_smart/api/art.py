@@ -2047,7 +2047,16 @@ class SamsungTVAsyncArt:
                 content_ids.append(cid)
                 sidecar[name] = {"content_id": cid, "modified": mtime}
         if sidecar_path:
-            _dedup.save_sidecar(sidecar_path, sidecar)
+            try:
+                _dedup.save_sidecar(sidecar_path, sidecar)
+            except OSError as ex:
+                # Images are already on the TV; a failed sidecar write must not
+                # drop the uploaded content_ids. Log and keep going.
+                self._log.warning(
+                    "Art API: Failed to write dedup sidecar %s: %s",
+                    sidecar_path,
+                    ex,
+                )
         return content_ids
 
     async def upload_folder(
