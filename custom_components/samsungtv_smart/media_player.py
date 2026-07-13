@@ -94,6 +94,7 @@ from .const import (
     ATTR_FILE_PATH,
     ATTR_FILE_TYPE,
     ATTR_FILTER_ID,
+    ATTR_FOLDER_PATH,
     ATTR_MATTE_ID,
     ATTR_SHOW,
     ATTR_SHUFFLE,
@@ -165,6 +166,7 @@ from .const import (
     SERVICE_ART_SET_PHOTO_FILTER,
     SERVICE_ART_SET_SLIDESHOW,
     SERVICE_ART_UPLOAD,
+    SERVICE_ART_UPLOAD_FOLDER,
     SERVICE_SELECT_PICTURE_MODE,
     SIGNAL_CONFIG_ENTITY,
     ST_POLL_OFF_INTERVAL,
@@ -348,6 +350,11 @@ async def async_setup_entry(
             vol.Optional(ATTR_FILE_TYPE, default="jpg"): cv.string,
         },
         "async_art_upload",
+    )
+    platform.async_register_entity_service(
+        SERVICE_ART_UPLOAD_FOLDER,
+        {vol.Required(ATTR_FOLDER_PATH): cv.string},
+        "async_art_upload_folder",
     )
     platform.async_register_entity_service(
         SERVICE_ART_DELETE,
@@ -3615,6 +3622,73 @@ class SamsungTVDevice(SamsungTVEntity, MediaPlayerEntity):
 
             self._log.debug("Frame Art: Upload traceback: %s", traceback.format_exc())
             return {"error": str(ex)}
+
+    async def async_art_upload_folder(self, folder_path: str) -> dict:
+        """Upload every image in a server-side folder, deduping via a sidecar.
+
+        Points the dedup batch uploader at a folder under the HA config dir
+        (e.g. ``/config/www/frame_art_uploads/``). Images are uploaded with
+        ~2s spacing; a ``.dedup_sidecar.json`` written in the folder means a
+        second run of an unchanged folder uploads 0 files.
+        """
+        self._log.info("Frame Art: Starting folder upload of %s", folder_path)
+
+        if not await self._ensure_frame_tv_check():
+            self._log.warning("Frame TV art mode is not supported on this device")
+            result = {"service": "art_upload_folder", "error": "Frame TV not supported"}
+            self._store_art_result(result)
+            return result
+
+        # Ensure TV is on and in Art Mode
+        if not await self._ensure_art_mode_ready():
+            result = {"service": "art_upload_folder", "error": "Failed to turn on TV"}
+            self._store_art_result(result)
+            return result
+
+        try:
+            content_ids = await self._art_api.upload_folder(
+                folder_path, hass=self.hass
+            )
+        except FileNotFoundError:
+            self._log.error("Frame Art: Folder not found: %s", folder_path)
+            result = {
+                "service": "art_upload_folder",
+                "error": f"Folder not found: {folder_path}",
+            }
+            self._store_art_result(result)
+            return result
+        except Exception as ex:
+            self._log.error("Error uploading folder: %s", ex)
+            import traceback
+
+            self._log.debug(
+                "Frame Art: Folder upload traceback: %s", traceback.format_exc()
+            )
+            result = {"service": "art_upload_folder", "error": str(ex)}
+            self._store_art_result(result)
+            return result
+
+        self._log.info(
+            "Frame Art: Folder upload complete, %d new image(s): %s",
+            len(content_ids),
+            content_ids,
+        )
+
+        if content_ids:
+            # Refresh the gallery and backfill each new thumbnail once the TV
+            # has generated it (same handling as single-image uploads).
+            await self._force_art_coordinator_refresh()
+            for content_id in content_ids:
+                self.hass.async_create_task(self._retry_new_thumbnail(content_id))
+
+        result = {
+            "service": "art_upload_folder",
+            "success": True,
+            "uploaded": len(content_ids),
+            "content_ids": content_ids,
+        }
+        self._store_art_result(result)
+        return result
 
     async def _retry_new_thumbnail(self, content_id: str) -> None:
         """Fetch a just-uploaded image's thumbnail once the TV has built it.

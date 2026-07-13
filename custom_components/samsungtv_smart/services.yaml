@@ -121,6 +121,26 @@ art_upload:
             - "jpg"
             - "png"
 
+art_upload_folder:
+  name: Upload Artwork Folder (dedup)
+  description: >-
+    Upload every image (jpg/png) in a server-side folder to the Samsung Frame
+    TV, deduping via a sidecar file written in that folder. Images are uploaded
+    with a short delay between each; a second run of an unchanged folder uploads
+    nothing (files already sent are skipped). Point this at a folder under your
+    HA config directory, e.g. /config/www/frame_art_uploads/.
+  target:
+    entity:
+      integration: samsungtv_smart
+  fields:
+    folder_path:
+      name: Folder Path
+      description: Server-side path to the folder of images to upload.
+      required: true
+      example: "/config/www/frame_art_uploads/"
+      selector:
+        text:
+
 art_delete:
   name: Delete Artwork
   description: Delete an uploaded artwork from the TV. Only user-uploaded content (MY-* or MY_*) can be deleted.
