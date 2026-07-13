@@ -2050,6 +2050,47 @@ class SamsungTVAsyncArt:
             _dedup.save_sidecar(sidecar_path, sidecar)
         return content_ids
 
+    async def upload_folder(
+        self,
+        folder: str,
+        hass=None,
+        throttle: float = _UPLOAD_THROTTLE_SECONDS,
+        sidecar_name: str = ".dedup_sidecar.json",
+    ) -> list[str]:
+        """Upload every image in a folder, deduping via a sidecar in that folder.
+
+        Scans *folder* for image files (jpg/jpeg/png), then delegates to
+        ``upload_batch`` with a sidecar stored alongside the images
+        (``<folder>/<sidecar_name>``). Because the sidecar keys on filename +
+        mtime, a second run of an unchanged folder uploads 0 files.
+
+        Raises ``FileNotFoundError`` if *folder* is not an existing directory.
+        """
+        exts = (".jpg", ".jpeg", ".png")
+
+        def _scan() -> list[str] | None:
+            if not os.path.isdir(folder):
+                return None
+            return sorted(
+                os.path.join(folder, name)
+                for name in os.listdir(folder)
+                if name.lower().endswith(exts)
+                and os.path.isfile(os.path.join(folder, name))
+            )
+
+        if hass:
+            files = await hass.async_add_executor_job(_scan)
+        else:
+            files = _scan()
+
+        if files is None:
+            raise FileNotFoundError(folder)
+
+        sidecar_path = os.path.join(folder, sidecar_name)
+        return await self.upload_batch(
+            files, hass=hass, throttle=throttle, sidecar_path=sidecar_path
+        )
+
     async def delete(self, content_id: str) -> bool:
         """Delete an uploaded piece of art."""
         return await self.delete_list([content_id])
