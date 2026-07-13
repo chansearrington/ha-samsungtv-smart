@@ -10,9 +10,9 @@ from typing import Any
 from homeassistant.components.media_player.const import (
     ATTR_MEDIA_CONTENT_ID,
     ATTR_MEDIA_CONTENT_TYPE,
-    DOMAIN as MP_DOMAIN,
-    SERVICE_PLAY_MEDIA,
 )
+from homeassistant.components.media_player.const import DOMAIN as MP_DOMAIN
+from homeassistant.components.media_player.const import SERVICE_PLAY_MEDIA
 from homeassistant.components.remote import ATTR_NUM_REPEATS, RemoteEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
@@ -59,8 +59,15 @@ async def async_setup_entry(
         config = hass.data[DOMAIN][entry.entry_id][DATA_CFG]
         async_add_entities([SamsungTVRemote(config, entry.entry_id, mp_entity_id)])
 
-    # we wait for TV media player entity to be created
-    async_call_later(hass, 5, _add_remote_entity)
+    # We wait for the TV media player entity to be created. Cancel this pending
+    # callback on unload — otherwise a rapid reload fires the stale callback
+    # from the previous setup on top of the new one, registering a duplicate
+    # unique id ("does not generate unique IDs ... ignoring"). The entity
+    # registry is NOT a substitute check for this: it persists across full HA
+    # restarts, so probing it here used to make the remote entity silently
+    # never get (re)created after the very first restart.
+    cancel_add_remote_entity = async_call_later(hass, 5, _add_remote_entity)
+    entry.async_on_unload(cancel_add_remote_entity)
 
 
 class SamsungTVRemote(SamsungTVEntity, RemoteEntity):

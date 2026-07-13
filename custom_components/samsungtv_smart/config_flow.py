@@ -10,14 +10,7 @@ from typing import Any, Dict
 import voluptuous as vol
 
 from homeassistant.components.binary_sensor import DOMAIN as BS_DOMAIN
-from homeassistant.config_entries import (
-    SOURCE_RECONFIGURE,
-    SOURCE_REAUTH,
-    SOURCE_USER,
-    ConfigEntry,
-    ConfigFlowResult,
-    OptionsFlow,
-)
+from homeassistant.config_entries import ConfigEntry, ConfigFlowResult, OptionsFlow
 from homeassistant.const import (
     ATTR_DEVICE_ID,
     CONF_API_KEY,
@@ -33,7 +26,8 @@ from homeassistant.const import (
     __version__,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import config_entry_oauth2_flow, entity_registry as er
+from homeassistant.helpers import config_entry_oauth2_flow
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     EntitySelector,
@@ -57,23 +51,36 @@ from .const import (
     ATTR_DEVICE_MODEL,
     ATTR_DEVICE_NAME,
     ATTR_DEVICE_OS,
+    AUTH_METHOD_OAUTH,
+    AUTH_METHOD_PAT,
+    AUTH_METHOD_ST_ENTRY,
     CONF_APP_LAUNCH_METHOD,
     CONF_APP_LIST,
     CONF_APP_LOAD_METHOD,
     CONF_AUTH_METHOD,
     CONF_CHANNEL_LIST,
+    CONF_CONTENT_LIST_INTERVAL,
     CONF_DEVICE_MODEL,
     CONF_DEVICE_NAME,
     CONF_DEVICE_OS,
     CONF_DUMP_APPS,
+    CONF_ENABLE_IP_CONTROL,
     CONF_EXT_POWER_ENTITY,
+    CONF_IP_CONTROL_ART_MODE,
+    CONF_IP_CONTROL_FW_VERSION,
+    CONF_IP_CONTROL_MODEL_ID,
+    CONF_IP_CONTROL_TOKEN,
     CONF_LOGO_OPTION,
     CONF_OAUTH_TOKEN,
     CONF_PING_PORT,
     CONF_POWER_ON_METHOD,
+    CONF_REST_PORT,
     CONF_SHOW_CHANNEL_NR,
     CONF_SOURCE_LIST,
     CONF_ST_ENTRY_UNIQUE_ID,
+    CONF_ST_POLL_ON_INTERVAL,
+    CONF_SUPPORTS_GET_BRIGHTNESS,
+    CONF_SUPPORTS_GET_COLOR_TEMPERATURE,
     CONF_SYNC_TURN_OFF,
     CONF_SYNC_TURN_ON,
     CONF_TOGGLE_ART_MODE,
@@ -83,15 +90,19 @@ from .const import (
     CONF_USE_ST_STATUS_INFO,
     CONF_WOL_REPEAT,
     CONF_WS_NAME,
+    DEFAULT_CONTENT_LIST_INTERVAL,
+    DEFAULT_PORT,
+    DEFAULT_ST_POLL_ON_INTERVAL,
     DOMAIN,
+    MAX_CONTENT_LIST_INTERVAL,
+    MAX_ST_POLL_ON_INTERVAL,
     MAX_WOL_REPEAT,
+    MIN_CONTENT_LIST_INTERVAL,
+    MIN_ST_POLL_ON_INTERVAL,
     RESULT_ST_DEVICE_NOT_FOUND,
     RESULT_ST_DEVICE_USED,
     RESULT_SUCCESS,
     RESULT_WRONG_APIKEY,
-    AUTH_METHOD_OAUTH,
-    AUTH_METHOD_PAT,
-    AUTH_METHOD_ST_ENTRY,
     AppLaunchMethod,
     AppLoadMethod,
     PowerOnMethod,
@@ -133,9 +144,11 @@ CONF_AUTH_METHOD_SELECT = "auth_method"
 
 ADVANCED_OPTIONS = [
     CONF_APP_LAUNCH_METHOD,
+    CONF_CONTENT_LIST_INTERVAL,
     CONF_DUMP_APPS,
     CONF_EXT_POWER_ENTITY,
     CONF_PING_PORT,
+    CONF_ST_POLL_ON_INTERVAL,
     CONF_WOL_REPEAT,
     CONF_TOGGLE_ART_MODE,
     CONF_USE_MUTE_CHECK,
@@ -355,21 +368,27 @@ class SamsungTVSmartOAuth2FlowHandler(
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema({
-                vol.Required(
-                    CONF_AUTH_METHOD_SELECT, default=default_method
-                ): SelectSelector(
-                    SelectSelectorConfig(
-                        options=[
-                            SelectOptionDict(value=k, label=v)
-                            for k, v in auth_options.items()
-                        ],
-                        mode=SelectSelectorMode.LIST,
-                    )
-                ),
-            }),
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_AUTH_METHOD_SELECT, default=default_method
+                    ): SelectSelector(
+                        SelectSelectorConfig(
+                            options=[
+                                SelectOptionDict(value=k, label=v)
+                                for k, v in auth_options.items()
+                            ],
+                            mode=SelectSelectorMode.LIST,
+                        )
+                    ),
+                }
+            ),
             description_placeholders={
-                "oauth_status": "✓ Configured" if oauth_available else "✗ Not configured - Add credentials in Settings → Application Credentials",
+                "oauth_status": (
+                    "✓ Configured"
+                    if oauth_available
+                    else "✗ Not configured - Add credentials in Settings → Application Credentials"
+                ),
             },
         )
 
@@ -429,11 +448,13 @@ class SamsungTVSmartOAuth2FlowHandler(
 
         return self.async_show_form(
             step_id="host",
-            data_schema=vol.Schema({
-                vol.Required(CONF_HOST): str,
-                vol.Required(CONF_NAME): str,
-                vol.Optional(CONF_USE_HA_NAME, default=False): bool,
-            }),
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_HOST): str,
+                    vol.Required(CONF_NAME): str,
+                    vol.Optional(CONF_USE_HA_NAME, default=False): bool,
+                }
+            ),
             errors=errors if errors else None,
         )
 
@@ -461,7 +482,7 @@ class SamsungTVSmartOAuth2FlowHandler(
         self._name = user_input[CONF_NAME]
         api_key = user_input.get(CONF_API_KEY)
         st_entry_unique_id = user_input.get(CONF_ST_ENTRY_UNIQUE_ID)
-        
+
         if api_key and st_entry_unique_id:
             return self._show_manual_form(errors="only_key_or_st")
 
@@ -472,7 +493,9 @@ class SamsungTVSmartOAuth2FlowHandler(
             self._st_entry_unique_id = st_entry_unique_id
 
         self._api_key = api_key
-        self._auth_method = AUTH_METHOD_PAT
+        self._auth_method = (
+            AUTH_METHOD_ST_ENTRY if st_entry_unique_id else AUTH_METHOD_PAT
+        )
 
         use_ha_name = user_input.get(CONF_USE_HA_NAME, False)
         if use_ha_name:
@@ -509,7 +532,7 @@ class SamsungTVSmartOAuth2FlowHandler(
             ip_address = await self.hass.async_add_executor_job(
                 _get_ip, user_input[CONF_HOST]
             )
-            
+
             if not ip_address:
                 return self.async_show_form(
                     step_id="st_integration",
@@ -556,19 +579,21 @@ class SamsungTVSmartOAuth2FlowHandler(
 
     def _get_st_integration_schema(self, st_entries: dict) -> vol.Schema:
         """Return schema for ST integration selection."""
-        return vol.Schema({
-            vol.Required("st_entry"): SelectSelector(
-                SelectSelectorConfig(
-                    options=[
-                        SelectOptionDict(value=k, label=v)
-                        for k, v in st_entries.items()
-                    ],
-                    mode=SelectSelectorMode.DROPDOWN,
-                )
-            ),
-            vol.Required(CONF_HOST): str,
-            vol.Required(CONF_NAME): str,
-        })
+        return vol.Schema(
+            {
+                vol.Required("st_entry"): SelectSelector(
+                    SelectSelectorConfig(
+                        options=[
+                            SelectOptionDict(value=k, label=v)
+                            for k, v in st_entries.items()
+                        ],
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Required(CONF_HOST): str,
+                vol.Required(CONF_NAME): str,
+            }
+        )
 
     async def async_step_stdevice(
         self, user_input: dict[str, Any] | None = None
@@ -619,7 +644,12 @@ class SamsungTVSmartOAuth2FlowHandler(
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle reconfiguration of the integration."""
+        """Reconfiguration entry point: show a clear sectioned menu.
+
+        Splits what used to be one cramped form into focused sections so the
+        user picks exactly what they want to change (connection, auth, or IP
+        Control) instead of guessing which mix of fields applies.
+        """
         entry = self._get_reconfigure_entry()
         if entry.unique_id == entry.data[CONF_HOST]:
             return self.async_abort(reason="host_unique_id")
@@ -629,56 +659,212 @@ class SamsungTVSmartOAuth2FlowHandler(
             if CONF_API_KEY in entry.data:
                 self._device_id = entry.data.get(CONF_DEVICE_ID)
 
+        return self.async_show_menu(
+            step_id="reconfigure",
+            menu_options=[
+                "reconfigure_connection",
+                "reconfigure_auth",
+                "reconfigure_ip_control",
+            ],
+        )
+
+    async def async_step_reconfigure_connection(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Reconfigure the TV connection (IP address and WebSocket port)."""
+        entry = self._get_reconfigure_entry()
         if user_input is None:
-            return self._show_reconfigure_form()
+            return self._show_connection_form()
 
         ip_address = await self.hass.async_add_executor_job(
             _get_ip, user_input[CONF_HOST]
         )
         if not ip_address:
-            return self._show_reconfigure_form(errors="invalid_host")
+            return self._show_connection_form(errors="invalid_host")
 
         self._async_abort_entries_match({CONF_HOST: ip_address})
 
-        # Check if user wants to (re-)authenticate with OAuth
-        if user_input.get("reauth_oauth"):
-            self._reauth_entry = entry
-            oauth_available = await self._async_oauth_available()
-            if not oauth_available:
+        # Preserve the existing authentication unchanged -- this section only
+        # touches the connection, so _apply_reconfigure_and_reload must not
+        # wipe the stored credentials.
+        self._host = ip_address
+        self._api_key = entry.data.get(CONF_API_KEY)
+        self._auth_method = entry.data.get(CONF_AUTH_METHOD, AUTH_METHOD_PAT)
+        self._st_entry_unique_id = entry.data.get(CONF_ST_ENTRY_UNIQUE_ID)
+
+        result = await self._try_connect(
+            port=user_input.get(CONF_PORT) or entry.data.get(CONF_PORT),
+            skip_info=True,
+        )
+        if result != RESULT_SUCCESS:
+            return self._show_connection_form(errors=result)
+        return self._apply_reconfigure_and_reload()
+
+    async def async_step_reconfigure_auth(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Reconfigure authentication (OAuth2, PAT, or SmartThings)."""
+        entry = self._get_reconfigure_entry()
+
+        if user_input is None:
+            return await self._async_show_auth_form()
+
+        method = user_input.get(CONF_AUTH_METHOD_SELECT, AUTH_METHOD_PAT)
+
+        if method == AUTH_METHOD_OAUTH:
+            if not await self._async_oauth_available():
                 return self.async_abort(reason="oauth_not_configured")
+            # Reuse the reauth machinery: async_oauth_create_entry will see
+            # _reauth_entry set and finish by updating + reloading this entry.
+            self._reauth_entry = entry
             return await self.async_step_pick_implementation()
 
         api_key = user_input.get(CONF_API_KEY)
         st_entry_unique_id = user_input.get(CONF_ST_ENTRY_UNIQUE_ID)
         if api_key and st_entry_unique_id:
-            return self._show_reconfigure_form(errors="only_key_or_st")
+            return await self._async_show_auth_form(errors="only_key_or_st")
 
         self._st_entry_unique_id = None
-        if st_entry_unique_id:
+        if method == AUTH_METHOD_ST_ENTRY and st_entry_unique_id:
             if not (api_key := get_smartthings_api_key(self.hass, st_entry_unique_id)):
-                return self._show_reconfigure_form(errors="st_api_key_fail")
+                return await self._async_show_auth_form(errors="st_api_key_fail")
             self._st_entry_unique_id = st_entry_unique_id
         else:
             api_key = api_key or entry.data.get(CONF_API_KEY)
 
-        self._host = ip_address
+        self._host = entry.data[CONF_HOST]
         self._api_key = api_key
-
-        # Validate SmartThings token if provided
-        if self._api_key:
-            if not await self._validate_smartthings_token(self._api_key):
-                return self._show_reconfigure_form(errors=RESULT_WRONG_APIKEY)
-
-        result = await self._try_connect(
-            port=entry.data.get(CONF_PORT),
-            token=entry.data.get(CONF_TOKEN),
-            skip_info=True,
+        self._auth_method = (
+            AUTH_METHOD_ST_ENTRY if self._st_entry_unique_id else AUTH_METHOD_PAT
         )
-        return self._manage_reconfigure(result)
 
-    async def async_step_reauth(
-        self, entry_data: dict[str, Any]
+        if self._api_key and not await self._validate_smartthings_token(self._api_key):
+            return await self._async_show_auth_form(errors=RESULT_WRONG_APIKEY)
+
+        result = await self._try_connect(port=entry.data.get(CONF_PORT), skip_info=True)
+        if result != RESULT_SUCCESS:
+            return await self._async_show_auth_form(errors=result)
+        return self._apply_reconfigure_and_reload()
+
+    async def async_step_reconfigure_ip_control(
+        self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        """Reconfigure IP Control: pairing and behaviour toggles.
+
+        Moved here from the options flow so all connection-related setup lives
+        in one place. The enable/art-mode toggles are still persisted to
+        entry.options, since the rest of the integration reads them from there.
+        """
+        entry = self._get_reconfigure_entry()
+        paired = bool(entry.data.get(CONF_IP_CONTROL_TOKEN))
+
+        if user_input is not None:
+            if paired:
+                new_options = dict(entry.options)
+                new_options[CONF_ENABLE_IP_CONTROL] = user_input.get(
+                    CONF_ENABLE_IP_CONTROL, True
+                )
+                new_options[CONF_IP_CONTROL_ART_MODE] = user_input.get(
+                    CONF_IP_CONTROL_ART_MODE, False
+                )
+                self.hass.config_entries.async_update_entry(entry, options=new_options)
+
+            if user_input.get("pair_now"):
+                return await self.async_step_reconfigure_ip_pair()
+
+            # The options update above triggers the entry's update listener,
+            # which schedules a reload when a structural option changed — so we
+            # must not also reload here (combining the two is deprecated in HA).
+            return self.async_abort(reason="reconfigure_successful")
+
+        schema: dict = {vol.Optional("pair_now", default=False): bool}
+        if paired:
+            schema[
+                vol.Required(
+                    CONF_ENABLE_IP_CONTROL,
+                    default=entry.options.get(CONF_ENABLE_IP_CONTROL, True),
+                )
+            ] = bool
+            schema[
+                vol.Required(
+                    CONF_IP_CONTROL_ART_MODE,
+                    default=entry.options.get(CONF_IP_CONTROL_ART_MODE, False),
+                )
+            ] = bool
+
+        return self.async_show_form(
+            step_id="reconfigure_ip_control",
+            data_schema=vol.Schema(schema),
+            description_placeholders={
+                "status": "paired" if paired else "not paired",
+            },
+        )
+
+    async def async_step_reconfigure_ip_pair(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Pair the TV's IP Control (JSON-RPC) interface.
+
+        Requires the TV ON in NORMAL viewing (not Art Mode) with "IP Remote"
+        enabled (Settings -> Connections -> Network -> Expert Settings).
+        """
+        from .api.ipcontrol import SamsungIPControl, SamsungIPControlError
+
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+        paired = bool(entry.data.get(CONF_IP_CONTROL_TOKEN))
+
+        if user_input is not None:
+            host = entry.data.get(CONF_HOST)
+            if not host:
+                errors[CONF_BASE] = "ip_control_no_host"
+            else:
+                client = SamsungIPControl(self.hass, host)
+                try:
+                    token = await client.async_pair()
+                except SamsungIPControlError as ex:
+                    _LOGGER.warning(
+                        "IP Control pairing failed for %s: %s (TV must be ON in "
+                        "normal viewing -- not Art Mode, not standby -- and IP "
+                        "Remote enabled in Settings)",
+                        host,
+                        ex,
+                    )
+                    errors[CONF_BASE] = "ip_control_pair_failed"
+                else:
+                    data_updates: dict[str, Any] = {CONF_IP_CONTROL_TOKEN: token}
+                    try:
+                        device_info = await client.async_get_device_information()
+                    except SamsungIPControlError as ex:
+                        _LOGGER.debug(
+                            "IP Control getDeviceInformation failed for %s: %s",
+                            host,
+                            ex,
+                        )
+                    else:
+                        data_updates[CONF_IP_CONTROL_MODEL_ID] = device_info["modelID"]
+                        data_updates[CONF_IP_CONTROL_FW_VERSION] = device_info[
+                            "FWVersion"
+                        ]
+                    # Update the entry data only; the update listener schedules
+                    # the reload (combining in-flow reload with an update
+                    # listener is deprecated in HA).
+                    return self.async_update_and_abort(
+                        entry,
+                        data_updates=data_updates,
+                        reason="ip_control_pair_successful",
+                    )
+
+        return self.async_show_form(
+            step_id="reconfigure_ip_pair",
+            data_schema=vol.Schema({}),
+            errors=errors,
+            description_placeholders={
+                "status": "already paired" if paired else "not paired",
+            },
+        )
+
+    async def async_step_reauth(self, entry_data: dict[str, Any]) -> ConfigFlowResult:
         """Handle re-authentication."""
         self._reauth_entry = self.hass.config_entries.async_get_entry(
             self.context["entry_id"]
@@ -714,7 +900,8 @@ class SamsungTVSmartOAuth2FlowHandler(
                 "auth_implementation": DOMAIN,
             },
         )
-        await self.hass.config_entries.async_reload(self._reauth_entry.entry_id)
+        # The data update above triggers the update listener, which schedules
+        # the reload — reloading here too is deprecated in HA.
         return self.async_abort(reason="reauth_successful")
 
     # =========================================================================
@@ -740,33 +927,38 @@ class SamsungTVSmartOAuth2FlowHandler(
             unique_id = mac or self._host
 
         await self.async_set_unique_id(unique_id)
-        self._abort_if_unique_id_configured()
+        self._abort_if_unique_id_configured(reload_on_update=False)
 
         return self._save_entry()
 
     @callback
-    def _manage_reconfigure(self, result: str) -> ConfigFlowResult:
-        """Manage the reconfigure result."""
-        if result != RESULT_SUCCESS:
-            self._error = result
-            return self._show_reconfigure_form()
-
+    def _apply_reconfigure_and_reload(self) -> ConfigFlowResult:
+        """Persist the reconfigured connection/auth data and reload the entry."""
         entry = self._get_reconfigure_entry()
         updates = {
             CONF_HOST: self._host,
             CONF_PORT: self._tv_info.ws_port,
+            # Drop any REST port learned for the previous connection so REST
+            # re-learns from the freshly chosen port instead of keeping a stale
+            # value (the TV behind this entry may have changed).
+            CONF_REST_PORT: None,
+            # Re-detect Art API get-capabilities after a reconfigure (the TV
+            # behind this entry may have changed); None forces a fresh probe.
+            CONF_SUPPORTS_GET_BRIGHTNESS: None,
+            CONF_SUPPORTS_GET_COLOR_TEMPERATURE: None,
         }
         if self._token:
             updates[CONF_TOKEN] = self._token
 
         if self._api_key:
             updates[CONF_API_KEY] = self._api_key
+            updates[CONF_AUTH_METHOD] = self._auth_method
             if CONF_ST_ENTRY_UNIQUE_ID in entry.data or self._st_entry_unique_id:
                 updates[CONF_ST_ENTRY_UNIQUE_ID] = self._st_entry_unique_id
 
-        return self.async_update_reload_and_abort(
-            entry, data_updates=updates, reload_even_if_entry_is_unchanged=False
-        )
+        # Update the entry data only; the update listener schedules the reload
+        # (combining an in-flow reload with an update listener is deprecated).
+        return self.async_update_and_abort(entry, data_updates=updates)
 
     @callback
     def _save_entry(self) -> ConfigFlowResult:
@@ -844,66 +1036,106 @@ class SamsungTVSmartOAuth2FlowHandler(
         if st_entries:
             st_unique_id = data.get(CONF_ST_ENTRY_UNIQUE_ID)
             sugg_val = st_unique_id if st_unique_id in st_entries else None
-            init_schema.update({
-                vol.Optional(
-                    CONF_ST_ENTRY_UNIQUE_ID,
-                    description={"suggested_value": sugg_val},
-                ): SelectSelector(_dict_to_select(st_entries)),
-            })
+            init_schema.update(
+                {
+                    vol.Optional(
+                        CONF_ST_ENTRY_UNIQUE_ID,
+                        description={"suggested_value": sugg_val},
+                    ): SelectSelector(_dict_to_select(st_entries)),
+                }
+            )
 
         return self.async_show_form(
             step_id="manual",
             data_schema=vol.Schema(init_schema),
             errors={CONF_BASE: base_err} if base_err else None,
+            description_placeholders={
+                "st_tokens_url": "https://account.smartthings.com/tokens",
+            },
         )
 
     @callback
-    def _show_reconfigure_form(self, errors: str | None = None) -> ConfigFlowResult:
-        """Show the reconfiguration form."""
+    def _show_connection_form(self, errors: str | None = None) -> ConfigFlowResult:
+        """Show the connection (IP + port) reconfigure form."""
+        base_err = errors or self._error
+        self._error = None
+
+        data = self._get_reconfigure_entry().data
+
+        schema = {
+            vol.Required(CONF_HOST, default=data.get(CONF_HOST, "")): str,
+            vol.Optional(
+                CONF_PORT,
+                description={"suggested_value": data.get(CONF_PORT, DEFAULT_PORT)},
+            ): vol.All(vol.Coerce(int), vol.In([8001, 8002])),
+        }
+
+        return self.async_show_form(
+            step_id="reconfigure_connection",
+            data_schema=vol.Schema(schema),
+            errors={CONF_BASE: base_err} if base_err else None,
+        )
+
+    async def _async_show_auth_form(
+        self, errors: str | None = None
+    ) -> ConfigFlowResult:
+        """Show the authentication reconfigure form with a method selector."""
         base_err = errors or self._error
         self._error = None
 
         entry = self._get_reconfigure_entry()
         data = entry.data
         st_entries = get_smartthings_entries(self.hass)
+        oauth_available = await self._async_oauth_available()
 
         current_auth = data.get(CONF_AUTH_METHOD, AUTH_METHOD_PAT)
-        auth_label = {
-            AUTH_METHOD_OAUTH: "OAuth2",
-            AUTH_METHOD_PAT: "PAT",
-            AUTH_METHOD_ST_ENTRY: "SmartThings Integration",
-        }.get(current_auth, "Unknown")
 
-        init_schema = {
-            vol.Required(CONF_HOST, default=data.get(CONF_HOST, "")): str,
+        auth_options = {}
+        if oauth_available:
+            auth_options[AUTH_METHOD_OAUTH] = "🔐 OAuth2 (Recommended)"
+        auth_options[AUTH_METHOD_PAT] = "🔑 Personal Access Token (PAT)"
+        if st_entries:
+            auth_options[AUTH_METHOD_ST_ENTRY] = "🔗 Use SmartThings Integration"
+
+        default_method = current_auth
+        if default_method not in auth_options:
+            default_method = AUTH_METHOD_OAUTH if oauth_available else AUTH_METHOD_PAT
+
+        schema = {
+            vol.Required(
+                CONF_AUTH_METHOD_SELECT, default=default_method
+            ): SelectSelector(
+                SelectSelectorConfig(
+                    options=[
+                        SelectOptionDict(value=k, label=v)
+                        for k, v in auth_options.items()
+                    ],
+                    mode=SelectSelectorMode.LIST,
+                )
+            ),
         }
 
-        # Always show OAuth option - for switching to OAuth or re-authenticating
-        # This allows users to get a fresh token even if already using OAuth
-        init_schema[vol.Optional("reauth_oauth", default=False)] = bool
-
-        # Show API key field (hidden if using OAuth, but kept for switching back)
         st_unique_id = data.get(CONF_ST_ENTRY_UNIQUE_ID)
         use_st_key = st_entries is not None and st_unique_id in st_entries
-        # Don't show API key field if using OAuth
-        if current_auth != AUTH_METHOD_OAUTH:
-            sugg_val = data.get(CONF_API_KEY, "") if not use_st_key else ""
-            init_schema[vol.Optional(
-                CONF_API_KEY, description={"suggested_value": sugg_val}
-            )] = str
 
-            if st_entries:
-                sugg_val = st_unique_id if use_st_key else None
-                init_schema[vol.Optional(
+        sugg_val = data.get(CONF_API_KEY, "") if not use_st_key else ""
+        schema[
+            vol.Optional(CONF_API_KEY, description={"suggested_value": sugg_val})
+        ] = str
+
+        if st_entries:
+            sugg_val = st_unique_id if use_st_key else None
+            schema[
+                vol.Optional(
                     CONF_ST_ENTRY_UNIQUE_ID,
                     description={"suggested_value": sugg_val},
-                )] = SelectSelector(_dict_to_select(st_entries))
+                )
+            ] = SelectSelector(_dict_to_select(st_entries))
 
         return self.async_show_form(
-            step_id="reconfigure",
-            data_schema=vol.Schema(init_schema),
+            step_id="reconfigure_auth",
+            data_schema=vol.Schema(schema),
             errors={CONF_BASE: base_err} if base_err else None,
-            description_placeholders={"current_auth": auth_label},
         )
 
     @staticmethod
@@ -967,6 +1199,20 @@ class OptionsFlowHandler(OptionsFlow):
             return self._save_entry(data=user_input)
         return self._async_option_form()
 
+    def _power_on_methods(self) -> dict:
+        """Power-on methods, including IP Control only when it is active."""
+        methods = dict(POWER_ON_METHODS)
+        entry = self.hass.config_entries.async_get_entry(self._entry_id)
+        if (
+            entry
+            and entry.data.get(CONF_IP_CONTROL_TOKEN)
+            and self._std_options.get(CONF_ENABLE_IP_CONTROL, True)
+        ):
+            methods[PowerOnMethod.IPControl.value] = (
+                "IP Control (reliable, no SmartThings)"
+            )
+        return methods
+
     @callback
     def _async_option_form(self):
         """Return configuration form for options."""
@@ -983,46 +1229,71 @@ class OptionsFlowHandler(OptionsFlow):
             ): bool,
         }
 
+        # IP Control pairing and its enable/art-mode toggles now live in the
+        # Reconfigure flow (Settings -> Devices -> Reconfigure), alongside the
+        # rest of the connection setup, instead of here in Options.
+
         if not self._app_list:
-            opt_schema.update({
-                vol.Required(
-                    CONF_APP_LOAD_METHOD,
-                    default=options.get(
-                        CONF_APP_LOAD_METHOD, str(AppLoadMethod.All.value)
-                    ),
-                ): SelectSelector(_dict_to_select(APP_LOAD_METHODS)),
-            })
+            opt_schema.update(
+                {
+                    vol.Required(
+                        CONF_APP_LOAD_METHOD,
+                        default=options.get(
+                            CONF_APP_LOAD_METHOD, str(AppLoadMethod.All.value)
+                        ),
+                    ): SelectSelector(_dict_to_select(APP_LOAD_METHODS)),
+                }
+            )
 
         if self._use_st:
-            data_schema = vol.Schema({
-                vol.Required(
-                    CONF_USE_ST_STATUS_INFO,
-                    default=options.get(CONF_USE_ST_STATUS_INFO, True),
-                ): bool,
-                vol.Required(
-                    CONF_USE_ST_CHANNEL_INFO,
-                    default=options.get(CONF_USE_ST_CHANNEL_INFO, True),
-                ): bool,
-                vol.Required(
-                    CONF_SHOW_CHANNEL_NR,
-                    default=options.get(CONF_SHOW_CHANNEL_NR, False),
-                ): bool,
-            }).extend(opt_schema)
-            data_schema = data_schema.extend({
-                vol.Required(
-                    CONF_POWER_ON_METHOD,
-                    default=options.get(
-                        CONF_POWER_ON_METHOD, str(PowerOnMethod.WOL.value)
-                    ),
-                ): SelectSelector(_dict_to_select(POWER_ON_METHODS)),
-            })
+            data_schema = vol.Schema(
+                {
+                    vol.Required(
+                        CONF_USE_ST_STATUS_INFO,
+                        default=options.get(CONF_USE_ST_STATUS_INFO, True),
+                    ): bool,
+                    vol.Required(
+                        CONF_USE_ST_CHANNEL_INFO,
+                        default=options.get(CONF_USE_ST_CHANNEL_INFO, True),
+                    ): bool,
+                    vol.Required(
+                        CONF_SHOW_CHANNEL_NR,
+                        default=options.get(CONF_SHOW_CHANNEL_NR, False),
+                    ): bool,
+                }
+            ).extend(opt_schema)
+            data_schema = data_schema.extend(
+                {
+                    vol.Required(
+                        CONF_POWER_ON_METHOD,
+                        default=options.get(
+                            CONF_POWER_ON_METHOD, str(PowerOnMethod.WOL.value)
+                        ),
+                    ): SelectSelector(_dict_to_select(self._power_on_methods())),
+                }
+            )
         else:
             data_schema = vol.Schema(opt_schema)
+            # Even without SmartThings, expose the power-on method selector when
+            # IP Control is enabled, so its SmartThings-free power path can be
+            # chosen (the list is then WOL + IP Control).
+            if PowerOnMethod.IPControl.value in self._power_on_methods():
+                data_schema = data_schema.extend(
+                    {
+                        vol.Required(
+                            CONF_POWER_ON_METHOD,
+                            default=options.get(
+                                CONF_POWER_ON_METHOD,
+                                str(PowerOnMethod.WOL.value),
+                            ),
+                        ): SelectSelector(_dict_to_select(self._power_on_methods())),
+                    }
+                )
 
         if not self._adv_chk:
-            data_schema = data_schema.extend({
-                vol.Required(CONF_SHOW_ADV_OPT, default=False): bool
-            })
+            data_schema = data_schema.extend(
+                {vol.Required(CONF_SHOW_ADV_OPT, default=False): bool}
+            )
 
         return self.async_show_form(step_id="init", data_schema=data_schema)
 
@@ -1055,11 +1326,13 @@ class OptionsFlowHandler(OptionsFlow):
                 return await self.async_step_menu()
             errors = {CONF_BASE: "invalid_tv_list"}
 
-        data_schema = vol.Schema({
-            vol.Optional(
-                CONF_SOURCE_LIST, default=self._source_list
-            ): ObjectSelector()
-        })
+        data_schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_SOURCE_LIST, default=self._source_list
+                ): ObjectSelector()
+            }
+        )
         return self.async_show_form(
             step_id="source_list", data_schema=data_schema, errors=errors
         )
@@ -1074,9 +1347,9 @@ class OptionsFlowHandler(OptionsFlow):
                 return await self.async_step_menu()
             errors = {CONF_BASE: "invalid_tv_list"}
 
-        data_schema = vol.Schema({
-            vol.Optional(CONF_APP_LIST, default=self._app_list): ObjectSelector()
-        })
+        data_schema = vol.Schema(
+            {vol.Optional(CONF_APP_LIST, default=self._app_list): ObjectSelector()}
+        )
         return self.async_show_form(
             step_id="app_list", data_schema=data_schema, errors=errors
         )
@@ -1091,11 +1364,13 @@ class OptionsFlowHandler(OptionsFlow):
                 return await self.async_step_menu()
             errors = {CONF_BASE: "invalid_tv_list"}
 
-        data_schema = vol.Schema({
-            vol.Optional(
-                CONF_CHANNEL_LIST, default=self._channel_list
-            ): ObjectSelector()
-        })
+        data_schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_CHANNEL_LIST, default=self._channel_list
+                ): ObjectSelector()
+            }
+        )
         return self.async_show_form(
             step_id="channel_list", data_schema=data_schema, errors=errors
         )
@@ -1117,16 +1392,20 @@ class OptionsFlowHandler(OptionsFlow):
         )
         options = _validate_options(self._sync_ent_opt)
 
-        data_schema = vol.Schema({
-            vol.Optional(
-                CONF_SYNC_TURN_OFF,
-                description={"suggested_value": options.get(CONF_SYNC_TURN_OFF, [])},
-            ): EntitySelector(select_entities),
-            vol.Optional(
-                CONF_SYNC_TURN_ON,
-                description={"suggested_value": options.get(CONF_SYNC_TURN_ON, [])},
-            ): EntitySelector(select_entities),
-        })
+        data_schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_SYNC_TURN_OFF,
+                    description={
+                        "suggested_value": options.get(CONF_SYNC_TURN_OFF, [])
+                    },
+                ): EntitySelector(select_entities),
+                vol.Optional(
+                    CONF_SYNC_TURN_ON,
+                    description={"suggested_value": options.get(CONF_SYNC_TURN_ON, [])},
+                ): EntitySelector(select_entities),
+            }
+        )
         return self.async_show_form(step_id="sync_ent", data_schema=data_schema)
 
     async def async_step_adv_opt(self, user_input=None) -> ConfigFlowResult:
@@ -1142,43 +1421,72 @@ class OptionsFlowHandler(OptionsFlow):
         select_entities = EntitySelectorConfig(domain=BS_DOMAIN)
         options = _validate_options(self._adv_options)
 
-        data_schema = vol.Schema({
-            vol.Required(
-                CONF_APP_LAUNCH_METHOD,
-                default=options.get(
-                    CONF_APP_LAUNCH_METHOD, str(AppLaunchMethod.Standard.value)
+        data_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_APP_LAUNCH_METHOD,
+                    default=options.get(
+                        CONF_APP_LAUNCH_METHOD, str(AppLaunchMethod.Standard.value)
+                    ),
+                ): SelectSelector(_dict_to_select(APP_LAUNCH_METHODS)),
+                vol.Required(
+                    CONF_WOL_REPEAT,
+                    default=min(options.get(CONF_WOL_REPEAT, 1), MAX_WOL_REPEAT),
+                ): vol.All(vol.Coerce(int), vol.Clamp(min=1, max=MAX_WOL_REPEAT)),
+                vol.Required(
+                    CONF_PING_PORT, default=options.get(CONF_PING_PORT, 0)
+                ): vol.All(vol.Coerce(int), vol.Clamp(min=0, max=65535)),
+                vol.Optional(
+                    CONF_EXT_POWER_ENTITY,
+                    description={
+                        "suggested_value": options.get(CONF_EXT_POWER_ENTITY, "")
+                    },
+                ): EntitySelector(select_entities),
+                vol.Required(
+                    CONF_USE_MUTE_CHECK,
+                    default=options.get(CONF_USE_MUTE_CHECK, False),
+                ): bool,
+                vol.Required(
+                    CONF_DUMP_APPS,
+                    default=options.get(CONF_DUMP_APPS, False),
+                ): bool,
+                vol.Required(
+                    CONF_TOGGLE_ART_MODE,
+                    default=options.get(CONF_TOGGLE_ART_MODE, False),
+                ): bool,
+                vol.Required(
+                    CONF_CONTENT_LIST_INTERVAL,
+                    default=options.get(
+                        CONF_CONTENT_LIST_INTERVAL, DEFAULT_CONTENT_LIST_INTERVAL
+                    ),
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Clamp(
+                        min=MIN_CONTENT_LIST_INTERVAL,
+                        max=MAX_CONTENT_LIST_INTERVAL,
+                    ),
                 ),
-            ): SelectSelector(_dict_to_select(APP_LAUNCH_METHODS)),
-            vol.Required(
-                CONF_WOL_REPEAT,
-                default=min(options.get(CONF_WOL_REPEAT, 1), MAX_WOL_REPEAT),
-            ): vol.All(vol.Coerce(int), vol.Clamp(min=1, max=MAX_WOL_REPEAT)),
-            vol.Required(
-                CONF_PING_PORT, default=options.get(CONF_PING_PORT, 0)
-            ): vol.All(vol.Coerce(int), vol.Clamp(min=0, max=65535)),
-            vol.Optional(
-                CONF_EXT_POWER_ENTITY,
-                description={"suggested_value": options.get(CONF_EXT_POWER_ENTITY, "")},
-            ): EntitySelector(select_entities),
-            vol.Required(
-                CONF_USE_MUTE_CHECK,
-                default=options.get(CONF_USE_MUTE_CHECK, False),
-            ): bool,
-            vol.Required(
-                CONF_DUMP_APPS,
-                default=options.get(CONF_DUMP_APPS, False),
-            ): bool,
-            vol.Required(
-                CONF_TOGGLE_ART_MODE,
-                default=options.get(CONF_TOGGLE_ART_MODE, False),
-            ): bool,
-        })
+                vol.Required(
+                    CONF_ST_POLL_ON_INTERVAL,
+                    default=options.get(
+                        CONF_ST_POLL_ON_INTERVAL, DEFAULT_ST_POLL_ON_INTERVAL
+                    ),
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Clamp(
+                        min=MIN_ST_POLL_ON_INTERVAL,
+                        max=MAX_ST_POLL_ON_INTERVAL,
+                    ),
+                ),
+            }
+        )
         return self.async_show_form(step_id="adv_opt", data_schema=data_schema)
 
 
 # =========================================================================
 # Helper functions
 # =========================================================================
+
 
 def _validate_options(options: dict) -> dict:
     """Validate options format."""

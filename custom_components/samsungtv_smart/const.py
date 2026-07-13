@@ -24,6 +24,7 @@ class PowerOnMethod(Enum):
 
     WOL = 1
     SmartThings = 2
+    IPControl = 3
 
 
 DOMAIN = "samsungtv_smart"
@@ -35,7 +36,49 @@ __min_ha_version__ = f"{MIN_HA_MAJ_VER}.{MIN_HA_MIN_VER}.0"
 DATA_CFG = "cfg"
 DATA_CFG_YAML = "cfg_yaml"
 DATA_OPTIONS = "options"
+DATA_ENTRY_DATA = "entry_data"  # Snapshot of entry.data to detect data changes
 DATA_ART_API = "art_api"  # Shared Frame Art API instance
+CONF_IS_FRAME_TV = "is_frame_tv"  # Persisted flag: TV confirmed as Frame TV
+# V7: persisted capability flags for the dedicated brightness / colour-temp
+# WebSocket requests. On TVs that don't respond (e.g. Frame 2024) we learn
+# this at runtime and remember it across restarts so we don't pay the probe
+# cost on every start.
+CONF_SUPPORTS_GET_BRIGHTNESS = "supports_get_brightness"
+CONF_SUPPORTS_GET_COLOR_TEMPERATURE = "supports_get_color_temperature"
+# V7: content list polling interval (seconds). The Frame Art sensor refreshes
+# at SCAN_INTERVAL (15 s) for cheap state, but the full get_content_list call
+# is now throttled to this longer cycle. Default 5 min, configurable via
+# advanced options.
+CONF_CONTENT_LIST_INTERVAL = "content_list_interval"
+DEFAULT_CONTENT_LIST_INTERVAL = 300
+MIN_CONTENT_LIST_INTERVAL = 30
+MAX_CONTENT_LIST_INTERVAL = 3600
+
+# SmartThings cloud poll cadence (seconds), while the TV is ON. The local
+# WebSocket / UPnP / IP Control are the primary state source (power, app,
+# volume, mute) and keep polling every SCAN_INTERVAL; SmartThings is only
+# hit for cloud-only data (channel name, picture mode, sound mode, power
+# metering) at this slower cadence to cut cloud API usage. While the TV is
+# OFF, SmartThings is throttled to ST_POLL_OFF_INTERVAL regardless.
+CONF_ST_POLL_ON_INTERVAL = "st_poll_on_interval"
+DEFAULT_ST_POLL_ON_INTERVAL = 30
+MIN_ST_POLL_ON_INTERVAL = 5
+MAX_ST_POLL_ON_INTERVAL = 600
+# Fixed SmartThings poll cadence (seconds) while the TV is OFF. A short
+# keepalive so a power-on is still picked up from the cloud as a backup to
+# the local WebSocket, without hammering the API during standby.
+ST_POLL_OFF_INTERVAL = 30
+
+# Persisted (entry.data): which SmartThings capability was VERIFIED to actually
+# actuate the panel for setPictureMode ("custom.picturemode" or
+# "samsungvd.pictureMode"). Learned at runtime by the verify-and-fallback logic
+# (some TVs answer 200 COMPLETED on one capability without applying it — issue
+# #116) and prioritized on later changes, surviving HA restarts. The other
+# capability is always kept as fallback. Excluded from the reload fingerprint
+# in __init__.py so persisting it never triggers an integration reload.
+CONF_ST_PICTURE_MODE_CAPABILITY = "st_picture_mode_capability"
+
+CONF_SLIDESHOW_API = "slideshow_api"  # Persisted: "slideshow" or "auto_rotation"
 LOCAL_LOGO_PATH = "local_logo_path"
 WS_PREFIX = "[Home Assistant]"
 
@@ -57,6 +100,12 @@ CONF_LOAD_ALL_APPS = "load_all_apps"
 CONF_LOGO_OPTION = "logo_option"
 CONF_PING_PORT = "ping_port"
 CONF_POWER_ON_METHOD = "power_on_method"
+# REST/HTTP port, learned independently of CONF_PORT (the WS/token + Art port).
+# Some older Frames (~2020) serve the REST API on 8001 while the secure token
+# WebSocket + Art channel live on 8002, so a single shared port made the two
+# self-heal mechanisms fight forever (8001 <-> 8002 ping-pong). Falls back to
+# CONF_PORT when unset (existing installs / TVs where one port serves both).
+CONF_REST_PORT = "rest_port"
 CONF_SHOW_CHANNEL_NR = "show_channel_number"
 CONF_SOURCE_LIST = "source_list"
 CONF_SYNC_TURN_OFF = "sync_turn_off"
@@ -78,6 +127,27 @@ CONF_DEVICE_ID = "device_id"
 # OAuth2 authentication
 CONF_AUTH_METHOD = "auth_method"
 CONF_OAUTH_TOKEN = "oauth_token"
+
+# IP Control (JSON-RPC, port 1516) — persisted access token, per TV (entry.data).
+# Presence of a token means the feature is paired/enabled for that TV.
+CONF_IP_CONTROL_TOKEN = "ip_control_token"
+CONF_ENABLE_IP_CONTROL = "enable_ip_control"
+# Whether IP Control's artModeControl/getTVStates are used for Art Mode
+# detection and switching. Disabled by default: some firmwares (e.g. after a
+# factory reset) leave artModeControl wedged "on" regardless of the actual
+# panel state, causing false art_mode_status readings. Power on/off via IP
+# Control (CONF_ENABLE_IP_CONTROL / CONF_POWER_ON_METHOD) is unaffected by
+# this setting. Re-enable once the TV's firmware reports artModeControl
+# correctly again.
+CONF_IP_CONTROL_ART_MODE = "ip_control_art_mode"
+
+# Device identity, learned once via IP Control's getDeviceInformation right
+# after pairing. Used to gate which model-dependent features/entities get
+# created (not every TV supports the same IP Control capability set).
+# Distinct from CONF_DEVICE_MODEL (the WS-discovered friendly model name):
+# modelID here is the raw internal code IP Control returns (e.g. "25_PTM_FTV").
+CONF_IP_CONTROL_MODEL_ID = "ip_control_model_id"
+CONF_IP_CONTROL_FW_VERSION = "ip_control_fw_version"
 
 # Authentication methods
 AUTH_METHOD_OAUTH = "oauth"
@@ -118,6 +188,8 @@ SERVICE_ART_GET_THUMBNAIL = "art_get_thumbnail"
 SERVICE_ART_GET_THUMBNAILS_BATCH = "art_get_thumbnails_batch"
 SERVICE_ART_SET_BRIGHTNESS = "art_set_brightness"
 SERVICE_ART_GET_BRIGHTNESS = "art_get_brightness"
+SERVICE_ART_SET_COLOR_TEMPERATURE = "art_set_color_temperature"
+SERVICE_ART_GET_COLOR_TEMPERATURE = "art_get_color_temperature"
 SERVICE_ART_CHANGE_MATTE = "art_change_matte"
 SERVICE_ART_SET_PHOTO_FILTER = "art_set_photo_filter"
 SERVICE_ART_GET_PHOTO_FILTER_LIST = "art_get_photo_filter_list"
@@ -134,6 +206,7 @@ ATTR_FILE_TYPE = "file_type"
 ATTR_MATTE_ID = "matte_id"
 ATTR_FILTER_ID = "filter_id"
 ATTR_BRIGHTNESS = "brightness"
+ATTR_COLOR_TEMPERATURE = "color_temperature"
 ATTR_SHOW = "show"
 ATTR_DURATION = "duration"
 ATTR_SHUFFLE = "shuffle"
@@ -146,53 +219,71 @@ STD_APP_LIST = {
     "org.tizen.browser": {
         "st_app_id": "",
         "logo": "tizenbrowser.png",
-    },  # Internet
+        "name": "Internet",
+    },
     "11101200001": {
         "st_app_id": "RN1MCdNq8t.Netflix",
         "logo": "netflix.png",
-    },  # Netflix
+        "name": "Netflix",
+    },
     "3201907018807": {
         "st_app_id": "org.tizen.netflix-app",
         "logo": "netflix.png",
-    },  # Netflix (New)
+        "name": "Netflix",
+    },
     "111299001912": {
         "st_app_id": "9Ur5IzDKqV.TizenYouTube",
         "logo": "youtube.png",
-    },  # YouTube
+        "name": "YouTube",
+    },
     "3201512006785": {
         "st_app_id": "org.tizen.ignition",
         "logo": "primevideo.png",
-    },  # Prime Video
-    # "3201512006785": {
-    #     "st_app_id": "evKhCgZelL.AmazonIgnitionLauncher2",
-    #     "logo": "",
-    # },  # Prime Video
+        "name": "Prime Video",
+    },
+    "3201910019365": {
+        "st_app_id": "org.tizen.primevideo",
+        "logo": "primevideo.png",
+        "name": "Prime Video",
+    },
     "3201901017640": {
         "st_app_id": "MCmYXNxgcu.DisneyPlus",
         "logo": "disneyplus.png",
-    },  # Disney+
+        "name": "Disney+",
+    },
     "3202110025305": {
         "st_app_id": "rJyOSqC6Up.PPlusIntl",
         "logo": "paramountplus.png",
-    },  # Paramount+
+        "name": "Paramount+",
+    },
     "11091000000": {
         "st_app_id": "4ovn894vo9.Facebook",
         "logo": "facebook.png",
-    },  # Facebook
+        "name": "Facebook",
+    },
     "3201806016390": {
         "st_app_id": "yu1NM3vHsU.DAZN",
         "logo": "dazn.png",
-    },  # Dazn
+        "name": "DAZN",
+    },
     "3201601007250": {
         "st_app_id": "QizQxC7CUf.PlayMovies",
         "logo": "",
-    },  # Google Play
+        "name": "Google Play",
+    },
     "3201606009684": {
         "st_app_id": "rJeHak5zRg.Spotify",
         "logo": "spotify.png",
-    },  # Spotify
+        "name": "Spotify",
+    },
     "3201512006963": {
         "st_app_id": "kIciSQlYEM.plex",
         "logo": "",
-    },  # Plex
+        "name": "Plex",
+    },
+    "com.samsung.tv.csfs": {
+        "st_app_id": "",
+        "logo": "",
+        "name": "Smart Hub",
+    },
 }
