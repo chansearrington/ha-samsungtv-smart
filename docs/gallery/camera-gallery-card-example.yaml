@@ -1,0 +1,52 @@
+# Ready-to-paste Frame Art gallery card.
+#
+# Requires TheScubaDiver/camera-gallery-card (MIT) installed via HACS
+# (custom repo: https://github.com/TheScubaDiver/camera-gallery-card).
+#
+# The card browses our media_source, which HA registers under the integration
+# domain, so its identifier prefix is:  media-source://samsungtv_smart
+# Browsing is two levels deep: pick your Frame, then its art library shows as a
+# thumbnail grid. Every tile is served by the integration's HTTP thumbnail view
+# (no base64) from the on-disk copies the frame_art coordinator saved to
+# www/frame_art/<entry_id>/<subdir>/<content_id>.jpg.
+#
+# --- Living Room Frame -------------------------------------------------------
+type: custom:camera-gallery-card
+title: Frame Art — Living Room
+media_source: media-source://samsungtv_smart
+columns: 4
+# Tapping a thumbnail selects + displays it on the Frame (target = that Frame's
+# frame_art sensor). This calls the REAL integration service — there is NO
+# `select` entity for artwork on this integration; `art_select_image` is how
+# art is chosen.
+tap_action:
+  action: call-service
+  service: samsungtv_smart.art_select_image
+  target:
+    entity_id: sensor.living_room_tv_frame_art   # confirm exact id in Dev Tools → States
+  data:
+    # The tapped item's media identifier is "<entry_id>/<content_id>". The card
+    # variable that carries it depends on the camera-gallery-card version — on
+    # TV-verify (Task 5.3), confirm what the card passes and, if it hands you the
+    # full "<entry_id>/<content_id>" identifier, strip the prefix:
+    #   content_id: "{{ media_content_id.split('/')[-1] }}"
+    content_id: "{{ media_content_id }}"
+    show: true
+
+# --- Kitchen Frame -----------------------------------------------------------
+# Same card, second Frame. The grid shows the Kitchen library because the
+# media_source lists both Frames at its root; point tap_action at the Kitchen
+# frame_art sensor.
+#
+# type: custom:camera-gallery-card
+# title: Frame Art — Kitchen
+# media_source: media-source://samsungtv_smart
+# columns: 4
+# tap_action:
+#   action: call-service
+#   service: samsungtv_smart.art_select_image
+#   target:
+#     entity_id: sensor.kitchen_tv_frame_art   # confirm exact id in Dev Tools → States
+#   data:
+#     content_id: "{{ media_content_id }}"
+#     show: true

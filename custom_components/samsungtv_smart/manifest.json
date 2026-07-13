@@ -12,7 +12,8 @@
   "config_flow": true,
   "dependencies": [
     "http",
-    "application_credentials"
+    "application_credentials",
+    "media_source"
   ],
   "documentation": "https://github.com/TheFab21/ha-samsungtv-smart",
   "integration_type": "device",
