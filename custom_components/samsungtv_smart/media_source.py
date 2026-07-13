@@ -75,8 +75,8 @@ def thumbnail_url(entry_id: str, content_id: str, width: int = _DEFAULT_THUMB_W)
 
 try:
     from homeassistant.components.media_player import MediaClass, MediaType
+    from homeassistant.components.media_player.errors import BrowseError
     from homeassistant.components.media_source import (
-        BrowseError,
         BrowseMediaSource,
         MediaSource,
         MediaSourceItem,
