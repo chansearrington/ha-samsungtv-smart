@@ -331,8 +331,6 @@ remote uses). Create **one automation instance per Frame** — e.g. Living Room 
 - **[README.md](./README.md)** — install, OAuth2, full service list, folder-gallery-card.
 - **[Frame_Art.md](./Frame_Art.md)** — deep dive on Art-Mode entities and services.
 - **[Frame_Art_Gallery.md](./Frame_Art_Gallery.md)** — interactive gallery specifics.
-- `custom_components/samsungtv_smart/api/ipcontrol.py` — IP-Control (JSON-RPC) client / wire protocol.
+- **[IP_Control_Protocol_Reference.md](./IP_Control_Protocol_Reference.md)** — IP-Control (JSON-RPC) wire-protocol reference. Client implementation: `custom_components/samsungtv_smart/api/ipcontrol.py`.
 - **[docs/gallery/README.md](./docs/gallery/README.md)** — how the `/frame-art` dashboard was built.
 - **[blueprints/automation/samsungtv_smart/README.md](./blueprints/automation/samsungtv_smart/README.md)** — presence-aware auto-art blueprint.
-</content>
-</invoke>
