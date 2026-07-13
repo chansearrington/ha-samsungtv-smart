@@ -1,0 +1,133 @@
+blueprint:
+  name: Samsung Frame Presence-Aware Auto-Art
+  description: >
+    Keeps a Samsung Frame in Art Mode intelligently.
+
+    On a configurable interval, IF the room is occupied, it advances the Frame
+    to the next artwork using the TV's own native selection (it sends the
+    KEY_RIGHT remote key, exactly as pressing Right on the physical remote would
+    while browsing art). If the room is occupied but the Frame is NOT in Art
+    Mode, it turns Art Mode back on (self-recovery). When the room is empty it
+    does nothing at all, so it never fights you while you are watching TV or
+    while the panel is meant to be off.
+
+    Works with EITHER Frame - every device is chosen from the inputs below, so
+    you create one automation instance per TV.
+
+    Requires the samsungtv_smart integration (this repo) with the bug-1
+    `in_artmode()` fix, which is what makes the Art Mode switch report the real
+    state on 2025 Frames.
+  domain: automation
+  source_url: https://github.com/chansearrington/ha-samsungtv-smart/blob/main/blueprints/automation/samsungtv_smart/presence_aware_frame_art.yaml
+  input:
+    target_media_player:
+      name: Frame TV media player
+      description: >
+        The Samsung Frame's media_player entity - e.g.
+        media_player.living_room_tv or media_player.kitchen_smartthings_hub.
+        This is the entity the KEY_RIGHT "next artwork" key is sent to.
+      selector:
+        target:
+          entity:
+            domain: media_player
+            integration: samsungtv_smart
+    art_mode_switch:
+      name: Art Mode switch
+      description: >
+        The Frame's Art Mode switch - e.g. switch.living_room_tv_art_mode or
+        switch.kitchen_tv_art_mode. Turned on for self-recovery when the room is
+        occupied but the Frame has dropped out of Art Mode.
+      selector:
+        entity:
+          domain: switch
+          integration: samsungtv_smart
+    presence_sensor:
+      name: Room presence / occupancy sensor
+      description: >
+        The sensor that says whether the room is occupied. A binary_sensor
+        (motion/occupancy) counts as occupied when it is "on"; a person or
+        device_tracker counts as occupied when it is "home". When this reads
+        unoccupied, the automation does nothing.
+      selector:
+        entity:
+          domain:
+            - binary_sensor
+            - person
+            - device_tracker
+    rotate_interval:
+      name: Rotate interval
+      description: >
+        How often to advance to the next artwork while the room is occupied.
+      default:
+        hours: 1
+        minutes: 0
+        seconds: 0
+      selector:
+        duration: {}
+    frame_art_sensor:
+      name: Frame Art sensor (optional)
+      description: >
+        Optional. The integration's "Frame Art" sensor (its state is "on"/"off"
+        for Art Mode). If provided, it is used as an extra confirmation of Art
+        Mode alongside the switch, so self-recovery only fires when BOTH agree
+        the Frame is out of Art Mode. Leave blank to rely on the switch alone.
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+          integration: samsungtv_smart
+
+# The Frame is advanced on a self-scheduling loop so the interval is fully
+# driven by the `rotate_interval` input. The loop is (re)started on Home
+# Assistant startup and whenever automations are reloaded.
+mode: restart
+max_exceeded: silent
+
+variables:
+  presence_entity: !input presence_sensor
+  art_switch: !input art_mode_switch
+  art_sensor: !input frame_art_sensor
+
+trigger:
+  - platform: homeassistant
+    event: start
+  - platform: event
+    event_type: automation_reloaded
+
+action:
+  - repeat:
+      while:
+        - condition: template
+          value_template: "{{ true }}"
+      sequence:
+        - delay: !input rotate_interval
+        # Only act while the room is occupied. A failed condition here would
+        # break the whole loop, so presence is gated with `if` (not a bare
+        # condition) to keep the loop alive while the room is empty.
+        - if:
+            - condition: template
+              value_template: "{{ states(presence_entity) in ['on', 'home'] }}"
+          then:
+            # Self-recovery: room is occupied but the Frame is not in Art Mode.
+            - if:
+                - condition: template
+                  value_template: >-
+                    {{ not (is_state(art_switch, 'on')
+                       or (art_sensor not in ['', none, 'unknown', 'unavailable']
+                           and is_state(art_sensor, 'on'))) }}
+              then:
+                - service: switch.turn_on
+                  target:
+                    entity_id: !input art_mode_switch
+                # Give the panel a moment to enter Art Mode before rotating.
+                - delay:
+                    seconds: 2
+            # Advance to the next artwork using the TV's native selection.
+            # media_content_type "send_key" + media_content_id "KEY_RIGHT" maps
+            # to the integration's MEDIA_TYPE_KEY handler (media_player.py), the
+            # same path remote.send_command uses.
+            - service: media_player.play_media
+              target: !input target_media_player
+              data:
+                media_content_type: send_key
+                media_content_id: KEY_RIGHT
