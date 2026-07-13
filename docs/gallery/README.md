@@ -118,3 +118,12 @@ art and re-run `art_get_thumbnails_batch`, add the new
 `image_list` (or switch it to a `folder` platform sensor exposing `file_list`).
 The camera-gallery-card "browse" card always reflects the full live library with no
 edits.
+
+## Update 2026-07-12 — camera-gallery-card removed (config error fix)
+
+`camera-gallery-card` was removed from the `/frame-art` dashboard (both Frame views) and its
+Lovelace resource deleted. It **requires `path_datetime_format`** to group files by date and is
+built for date-stamped camera footage — a poor fit for art thumbnails (no dates in their paths),
+which produced a "Configuration error" card. The **folder-gallery-card** provides the working
+tap-to-display gallery. For dynamic full-library browsing, use Home Assistant's native **Media**
+panel → "Samsung Frame Art" (the `media_source` is still registered and works).
