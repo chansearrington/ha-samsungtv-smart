@@ -1,0 +1,160 @@
+# Frame Art dashboard (storage-mode config, exported from the live HA instance)
+#
+# This is the exact config saved to the dedicated 'Frame Art' dashboard
+# (url path /frame-art) via the Lovelace WS API. It is NOT auto-loaded from
+# this file; it is stored in HA's .storage. Kept here as the source-of-truth
+# artifact and to re-apply with `lovelace/config/save` if needed.
+#
+# Per Frame view:
+#   - folder-gallery-card  -> TAP a tile to display it on the Frame
+#                             (samsungtv_smart.art_select_image). This is the
+#                             integration's own card, auto-registered at
+#                             /api/samsungtv_smart/folder-gallery-card.js.
+#   - camera-gallery-card  -> dynamic full-library BROWSE of the media_source
+#                             (media-source://samsungtv_smart/<entry_id>).
+#                             It cannot call a service on tap, so it is the
+#                             'browse' card only; selection is folder-gallery-card.
+#
+# Entry ids: Living Room = 01KD6Q3F8QV03CNAFZT7DWPY6P (media_player.living_room_tv)
+#            Kitchen     = 01KD6QDFQSZ1RAH2YEDVDTTBF4 (media_player.kitchen_smartthings_hub)
+
+title: Frame Art
+views:
+- title: Living Room
+  path: living-room
+  icon: mdi:sofa
+  cards:
+  - type: markdown
+    content: '## Living Room Frame
+
+      Tap a thumbnail below to display it on the Frame. Long-press to preview it full-screen.'
+  - type: horizontal-stack
+    cards:
+    - type: button
+      name: Art Mode
+      icon: mdi:palette
+      tap_action:
+        action: call-service
+        service: samsungtv_smart.art_set_artmode
+        target:
+          entity_id: media_player.living_room_tv
+        data:
+          enabled: true
+    - type: button
+      name: Bright
+      icon: mdi:brightness-7
+      tap_action:
+        action: call-service
+        service: samsungtv_smart.art_set_brightness
+        target:
+          entity_id: media_player.living_room_tv
+        data:
+          brightness: 80
+    - type: button
+      name: Dim
+      icon: mdi:brightness-4
+      tap_action:
+        action: call-service
+        service: samsungtv_smart.art_set_brightness
+        target:
+          entity_id: media_player.living_room_tv
+        data:
+          brightness: 30
+  - type: custom:folder-gallery-card
+    title: Tap to display on Frame
+    frame_tv_entity: media_player.living_room_tv
+    tv_entity: media_player.living_room_tv
+    columns: 4
+    image_height: 180px
+    gap: 10px
+    border_radius: 12px
+    show_filename: false
+    server_thumbnails: true
+    thumbnail_width: 400
+    image_list:
+    - /local/frame_art/01KD6Q3F8QV03CNAFZT7DWPY6P/personal/MY_F0014.jpg
+    - /local/frame_art/01KD6Q3F8QV03CNAFZT7DWPY6P/personal/MY_F0016.jpg
+    - /local/frame_art/01KD6Q3F8QV03CNAFZT7DWPY6P/personal/MY_F0017.jpg
+    - /local/frame_art/01KD6Q3F8QV03CNAFZT7DWPY6P/personal/MY_F0023.jpg
+    - /local/frame_art/01KD6Q3F8QV03CNAFZT7DWPY6P/store/SAM-S10001061.jpg
+    tap_action: action
+    action:
+      service: samsungtv_smart.art_select_image
+      target:
+        entity_id: media_player.living_room_tv
+      data:
+        content_id: '{{content_id}}'
+        show: true
+    hold_action: lightbox
+  - type: custom:camera-gallery-card
+    source_mode: media
+    media_sources:
+    - media-source://samsungtv_smart/01KD6Q3F8QV03CNAFZT7DWPY6P
+    thumb_layout: vertical
+- title: Kitchen
+  path: kitchen
+  icon: mdi:fridge
+  cards:
+  - type: markdown
+    content: '## Kitchen Frame
+
+      Tap a thumbnail below to display it on the Frame. Long-press to preview it full-screen.'
+  - type: horizontal-stack
+    cards:
+    - type: button
+      name: Art Mode
+      icon: mdi:palette
+      tap_action:
+        action: call-service
+        service: samsungtv_smart.art_set_artmode
+        target:
+          entity_id: media_player.kitchen_smartthings_hub
+        data:
+          enabled: true
+    - type: button
+      name: Bright
+      icon: mdi:brightness-7
+      tap_action:
+        action: call-service
+        service: samsungtv_smart.art_set_brightness
+        target:
+          entity_id: media_player.kitchen_smartthings_hub
+        data:
+          brightness: 80
+    - type: button
+      name: Dim
+      icon: mdi:brightness-4
+      tap_action:
+        action: call-service
+        service: samsungtv_smart.art_set_brightness
+        target:
+          entity_id: media_player.kitchen_smartthings_hub
+        data:
+          brightness: 30
+  - type: custom:folder-gallery-card
+    title: Tap to display on Frame
+    frame_tv_entity: media_player.kitchen_smartthings_hub
+    tv_entity: media_player.kitchen_smartthings_hub
+    columns: 4
+    image_height: 180px
+    gap: 10px
+    border_radius: 12px
+    show_filename: false
+    server_thumbnails: true
+    thumbnail_width: 400
+    image_list:
+    - /local/frame_art/01KD6QDFQSZ1RAH2YEDVDTTBF4/store/SAM-S9959.jpg
+    tap_action: action
+    action:
+      service: samsungtv_smart.art_select_image
+      target:
+        entity_id: media_player.kitchen_smartthings_hub
+      data:
+        content_id: '{{content_id}}'
+        show: true
+    hold_action: lightbox
+  - type: custom:camera-gallery-card
+    source_mode: media
+    media_sources:
+    - media-source://samsungtv_smart/01KD6QDFQSZ1RAH2YEDVDTTBF4
+    thumb_layout: vertical

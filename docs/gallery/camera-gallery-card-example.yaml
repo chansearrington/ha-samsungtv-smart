@@ -1,52 +1,54 @@
-# Ready-to-paste Frame Art gallery card.
+# Frame Art gallery cards — corrected against the real installed cards (2026-07-12).
 #
-# Requires TheScubaDiver/camera-gallery-card (MIT) installed via HACS
-# (custom repo: https://github.com/TheScubaDiver/camera-gallery-card).
+# IMPORTANT: the real camera-gallery-card (TheScubaDiver, v3.1.0, MIT) does NOT
+# support `tap_action`/`call-service` or `columns`. It browses a media_source in
+# "media" mode and previews items — it cannot select art on the Frame on tap.
+# For tap-to-select, use the integration's own folder-gallery-card (below).
 #
-# The card browses our media_source, which HA registers under the integration
-# domain, so its identifier prefix is:  media-source://samsungtv_smart
-# Browsing is two levels deep: pick your Frame, then its art library shows as a
-# thumbnail grid. Every tile is served by the integration's HTTP thumbnail view
-# (no base64) from the on-disk copies the frame_art coordinator saved to
-# www/frame_art/<entry_id>/<subdir>/<content_id>.jpg.
-#
-# --- Living Room Frame -------------------------------------------------------
-type: custom:camera-gallery-card
-title: Frame Art — Living Room
-media_source: media-source://samsungtv_smart
-columns: 4
-# Tapping a thumbnail selects + displays it on the Frame (target = that Frame's
-# frame_art sensor). This calls the REAL integration service — there is NO
-# `select` entity for artwork on this integration; `art_select_image` is how
-# art is chosen.
-tap_action:
-  action: call-service
-  service: samsungtv_smart.art_select_image
-  target:
-    entity_id: sensor.living_room_tv_frame_art   # confirm exact id in Dev Tools → States
-  data:
-    # The tapped item's media identifier is "<entry_id>/<content_id>". The card
-    # variable that carries it depends on the camera-gallery-card version — on
-    # TV-verify (Task 5.3), confirm what the card passes and, if it hands you the
-    # full "<entry_id>/<content_id>" identifier, strip the prefix:
-    #   content_id: "{{ media_content_id.split('/')[-1] }}"
-    content_id: "{{ media_content_id }}"
-    show: true
+# See ./frame-art-dashboard.yaml for the exact live dashboard, and ./README.md
+# for the full write-up.
 
-# --- Kitchen Frame -----------------------------------------------------------
-# Same card, second Frame. The grid shows the Kitchen library because the
-# media_source lists both Frames at its root; point tap_action at the Kitchen
-# frame_art sensor.
-#
-# type: custom:camera-gallery-card
-# title: Frame Art — Kitchen
-# media_source: media-source://samsungtv_smart
-# columns: 4
-# tap_action:
-#   action: call-service
-#   service: samsungtv_smart.art_select_image
-#   target:
-#     entity_id: sensor.kitchen_tv_frame_art   # confirm exact id in Dev Tools → States
-#   data:
-#     content_id: "{{ media_content_id }}"
-#     show: true
+# --- BROWSE the full library (dynamic, from the media_source) -----------------
+# camera-gallery-card, media mode. Point media_sources at ONE Frame's entry id.
+# Root is media-source://samsungtv_smart ; a Frame is that + /<entry_id>.
+- type: custom:camera-gallery-card
+  source_mode: media
+  media_sources:
+    - media-source://samsungtv_smart/01KD6Q3F8QV03CNAFZT7DWPY6P   # Living Room
+  thumb_layout: vertical
+
+# --- TAP a tile to DISPLAY it on the Frame ------------------------------------
+# folder-gallery-card (shipped + auto-registered by this integration at
+# /api/samsungtv_smart/folder-gallery-card.js). It reads an explicit image_list
+# of on-disk thumbnails and derives content_id from each filename. tap_action:
+# action -> samsungtv_smart.art_select_image.
+- type: custom:folder-gallery-card
+  title: Tap to display on Frame
+  frame_tv_entity: media_player.living_room_tv
+  tv_entity: media_player.living_room_tv
+  columns: 4
+  image_height: 180px
+  gap: 10px
+  border_radius: 12px
+  show_filename: false
+  server_thumbnails: true          # route tiles through the /api/.../thumbnail resizer
+  thumbnail_width: 400
+  image_list:
+    - /local/frame_art/01KD6Q3F8QV03CNAFZT7DWPY6P/personal/MY_F0014.jpg
+    - /local/frame_art/01KD6Q3F8QV03CNAFZT7DWPY6P/personal/MY_F0016.jpg
+    - /local/frame_art/01KD6Q3F8QV03CNAFZT7DWPY6P/personal/MY_F0017.jpg
+    - /local/frame_art/01KD6Q3F8QV03CNAFZT7DWPY6P/personal/MY_F0023.jpg
+    - /local/frame_art/01KD6Q3F8QV03CNAFZT7DWPY6P/store/SAM-S10001061.jpg
+  tap_action: action
+  action:
+    service: samsungtv_smart.art_select_image
+    target:
+      entity_id: media_player.living_room_tv
+    data:
+      content_id: "{{content_id}}"
+      show: true
+  hold_action: lightbox            # long-press to preview full-screen
+
+# For the Kitchen Frame, duplicate both cards with:
+#   entry id       01KD6QDFQSZ1RAH2YEDVDTTBF4
+#   media_player   media_player.kitchen_smartthings_hub
