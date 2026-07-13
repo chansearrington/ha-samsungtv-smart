@@ -445,23 +445,33 @@ class FolderGalleryCard extends HTMLElement {
     // changed. Considers both `folder_sensor` (YAML) and `sensor` (visual
     // editor writes here), and compares all attributes the card consumes.
     const sensorEntity = this._config.folder_sensor || this._config.sensor;
-    if (sensorEntity && oldHass) {
-      const buildKey = (attrs) => attrs ? JSON.stringify({
-        file_list: attrs.file_list,
-        images: attrs.images,
-        thumbnails: attrs.thumbnails,
-        items: attrs.items
-      }) : null;
+    if (oldHass) {
+      if (sensorEntity) {
+        const buildKey = (attrs) => attrs ? JSON.stringify({
+          file_list: attrs.file_list,
+          images: attrs.images,
+          thumbnails: attrs.thumbnails,
+          items: attrs.items
+        }) : null;
 
-      const oldKey = buildKey(oldHass.states[sensorEntity]?.attributes);
-      const newKey = buildKey(hass.states[sensorEntity]?.attributes);
+        const oldKey = buildKey(oldHass.states[sensorEntity]?.attributes);
+        const newKey = buildKey(hass.states[sensorEntity]?.attributes);
 
-      // Skip re-render if no relevant attribute changed (prevents flickering)
-      if (oldKey === newKey) {
-        return; // No changes detected, skip expensive re-render
+        // Skip re-render if no relevant attribute changed (prevents flickering)
+        if (oldKey === newKey) {
+          return; // No changes detected, skip expensive re-render
+        }
+
+        console.log('[FolderGallery] sensor data changed, updating gallery');
+      } else {
+        // No sensor configured: the image source is a static `image_list` or a
+        // fixed `folder` URL that does NOT depend on hass state. `set hass`
+        // fires on every global state change, so re-rendering here rebuilds the
+        // gallery DOM on every update and makes the thumbnails flicker. Tap
+        // handlers read the live `this._hass` (already assigned above), so it is
+        // safe to skip the re-render entirely after the first render.
+        return;
       }
-
-      console.log('[FolderGallery] sensor data changed, updating gallery');
     }
 
     this.updateImages();
